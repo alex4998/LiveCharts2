@@ -102,6 +102,9 @@
     <Compile Update="General\Animations\View.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Update="General\ConditionalDraw\View.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Update="General\ChartToImage\View.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -109,6 +112,9 @@
       <SubType>UserControl</SubType>
     </Compile>
     <Compile Update="General\MultiThreading\View.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="General\VisualElements\View.cs">
       <SubType>UserControl</SubType>
     </Compile>
     <Compile Update="General\Sections2\View.cs">
@@ -122,9 +128,6 @@
     </Compile>
     <Compile Update="General\Legends\View.cs">
       <SubType>UserControl</SubType>
-    </Compile>
-    <Compile Update="General\TemplatedTooltips\CustomTooltip.cs">
-      <SubType>Form</SubType>
     </Compile>
     <Compile Update="General\TemplatedTooltips\View.cs">
       <SubType>UserControl</SubType>

@@ -75,8 +75,7 @@ public class DoughnutGeometry : Geometry, IDoughnutGeometry<SkiaSharpDrawingCont
     /// <inheritdoc cref="IDoughnutGeometry{TDrawingContext}.SweepAngle" />
     public float SweepAngle
     {
-        get =>
-            _sweepProperty.GetMovement(this);
+        get => _sweepProperty.GetMovement(this);
         set => _sweepProperty.SetMovement(value, this);
     }
 
@@ -125,8 +124,8 @@ public class DoughnutGeometry : Geometry, IDoughnutGeometry<SkiaSharpDrawingCont
             (float)(cx + Math.Cos(startAngle * toRadians) * wedge),
             (float)(cy + Math.Sin(startAngle * toRadians) * wedge));
         path.LineTo(
-            (float)(cx + Math.Cos(startAngle * toRadians) * (r + pushout)),
-            (float)(cy + Math.Sin(startAngle * toRadians) * (r + pushout)));
+            (float)(cx + Math.Cos(startAngle * toRadians) * r),
+            (float)(cy + Math.Sin(startAngle * toRadians) * r));
         path.ArcTo(
             new SKRect { Left = X, Top = Y, Size = new SKSize { Width = Width, Height = Height } },
             startAngle,
@@ -136,7 +135,7 @@ public class DoughnutGeometry : Geometry, IDoughnutGeometry<SkiaSharpDrawingCont
             (float)(cx + Math.Cos((sweepAngle + startAngle) * toRadians) * wedge),
             (float)(cy + Math.Sin((sweepAngle + startAngle) * toRadians) * wedge));
         path.ArcTo(
-            new SKPoint { X = wedge + pushout, Y = wedge + pushout },
+            new SKPoint { X = wedge, Y = wedge },
             0,
             sweepAngle > 180 ? SKPathArcSize.Large : SKPathArcSize.Small,
             SKPathDirection.CounterClockwise,

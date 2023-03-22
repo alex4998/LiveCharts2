@@ -25,11 +25,14 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Linq;
 using System.Windows.Forms;
 using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel;
 using LiveChartsCore.Kernel.Sketches;
+using LiveChartsCore.Measure;
 using LiveChartsCore.SkiaSharpView.Drawing;
+using LiveChartsCore.VisualElements;
 
 namespace LiveChartsCore.SkiaSharpView.WinForms;
 
@@ -39,10 +42,10 @@ public class PolarChart : Chart, IPolarChartView<SkiaSharpDrawingContext>
     private bool _fitToBounds = false;
     private double _totalAngle = 360;
     private double _innerRadius;
-    private double _initialRotation = LiveCharts.CurrentSettings.PolarInitialRotation;
-    private CollectionDeepObserver<ISeries> _seriesObserver;
-    private CollectionDeepObserver<IPolarAxis> _angleObserver;
-    private CollectionDeepObserver<IPolarAxis> _radiusObserver;
+    private double _initialRotation = LiveCharts.DefaultSettings.PolarInitialRotation;
+    private readonly CollectionDeepObserver<ISeries> _seriesObserver;
+    private readonly CollectionDeepObserver<IPolarAxis> _angleObserver;
+    private readonly CollectionDeepObserver<IPolarAxis> _radiusObserver;
     private IEnumerable<ISeries> _series = new List<ISeries>();
     private IEnumerable<IPolarAxis> _angleAxes = new List<PolarAxis>();
     private IEnumerable<IPolarAxis> _radiusAxes = new List<PolarAxis>();
@@ -66,13 +69,14 @@ public class PolarChart : Chart, IPolarChartView<SkiaSharpDrawingContext>
 
         AngleAxes = new List<IPolarAxis>()
             {
-                LiveCharts.CurrentSettings.GetProvider<SkiaSharpDrawingContext>().GetDefaultPolarAxis()
+                LiveCharts.DefaultSettings.GetProvider<SkiaSharpDrawingContext>().GetDefaultPolarAxis()
             };
         RadiusAxes = new List<IPolarAxis>()
             {
-                LiveCharts.CurrentSettings.GetProvider<SkiaSharpDrawingContext>().GetDefaultPolarAxis()
+                LiveCharts.DefaultSettings.GetProvider<SkiaSharpDrawingContext>().GetDefaultPolarAxis()
             };
         Series = new ObservableCollection<ISeries>();
+        VisualElements = new ObservableCollection<ChartElement<SkiaSharpDrawingContext>>();
 
         var c = Controls[0].Controls[0];
 
@@ -180,29 +184,63 @@ public class PolarChart : Chart, IPolarChartView<SkiaSharpDrawingContext>
     protected override void InitializeCore()
     {
         core = new PolarChart<SkiaSharpDrawingContext>(
-            this, LiveChartsSkiaSharp.DefaultPlatformBuilder, motionCanvas.CanvasCore, true);
+            this, config => config.UseDefaults(), motionCanvas.CanvasCore, true);
         if (((IChartView)this).DesignerMode) return;
         core.Update();
     }
 
-    /// <inheritdoc cref="IPolarChartView{TDrawingContext}.ScaleUIPoint(LvcPoint, int, int)" />
-    public double[] ScaleUIPoint(LvcPoint point, int xAxisIndex = 0, int yAxisIndex = 0)
+    /// <inheritdoc cref="IPolarChartView{TDrawingContext}.ScalePixelsToData(LvcPointD, int, int)"/>
+    public LvcPointD ScalePixelsToData(LvcPointD point, int angleAxisIndex = 0, int radiusAxisIndex = 0)
     {
-        return new double[0];
-        //if (core is null) throw new Exception("core not found");
-        //var cartesianCore = (PolarChart<SkiaSharpDrawingContext>)core;
-        //return cartesianCore.ScaleUIPoint(point, xAxisIndex, yAxisIndex);
+        if (core is not PolarChart<SkiaSharpDrawingContext> cc) throw new Exception("core not found");
+
+        var scaler = new PolarScaler(
+            cc.DrawMarginLocation, cc.DrawMarginSize, cc.AngleAxes[angleAxisIndex], cc.RadiusAxes[radiusAxisIndex],
+            cc.InnerRadius, cc.InitialRotation, cc.TotalAnge);
+
+        return scaler.ToChartValues(point.X, point.Y);
+    }
+
+    /// <inheritdoc cref="IPolarChartView{TDrawingContext}.ScaleDataToPixels(LvcPointD, int, int)"/>
+    public LvcPointD ScaleDataToPixels(LvcPointD point, int angleAxisIndex = 0, int radiusAxisIndex = 0)
+    {
+        if (core is not PolarChart<SkiaSharpDrawingContext> cc) throw new Exception("core not found");
+
+        var scaler = new PolarScaler(
+            cc.DrawMarginLocation, cc.DrawMarginSize, cc.AngleAxes[angleAxisIndex], cc.RadiusAxes[radiusAxisIndex],
+            cc.InnerRadius, cc.InitialRotation, cc.TotalAnge);
+
+        var r = scaler.ToPixels(point.X, point.Y);
+
+        return new LvcPointD { X = (float)r.X, Y = (float)r.Y };
+    }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.GetPointsAt(LvcPoint, TooltipFindingStrategy)"/>
+    public override IEnumerable<ChartPoint> GetPointsAt(LvcPoint point, TooltipFindingStrategy strategy = TooltipFindingStrategy.Automatic)
+    {
+        if (core is not PolarChart<SkiaSharpDrawingContext> cc) throw new Exception("core not found");
+
+        if (strategy == TooltipFindingStrategy.Automatic)
+            strategy = cc.Series.GetTooltipFindingStrategy();
+
+        return cc.Series.SelectMany(series => series.FindHitPoints(cc, point, strategy));
+    }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.GetVisualsAt(LvcPoint)"/>
+    public override IEnumerable<VisualElement<SkiaSharpDrawingContext>> GetVisualsAt(LvcPoint point)
+    {
+        return core is not PolarChart<SkiaSharpDrawingContext> cc
+            ? throw new Exception("core not found")
+            : cc.VisualElements.SelectMany(visual => ((VisualElement<SkiaSharpDrawingContext>)visual).IsHitBy(core, point));
     }
 
     private void OnDeepCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (sender is IStopNPC stop && !stop.IsNotifyingChanges) return;
         OnPropertyChanged();
     }
 
     private void OnDeepCollectionPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (sender is IStopNPC stop && !stop.IsNotifyingChanges) return;
         OnPropertyChanged();
     }
 
@@ -217,11 +255,11 @@ public class PolarChart : Chart, IPolarChartView<SkiaSharpDrawingContext>
 
     private void OnMouseDown(object? sender, MouseEventArgs e)
     {
-        core?.InvokePointerDown(new LvcPoint(e.Location.X, e.Location.Y));
+        core?.InvokePointerDown(new LvcPoint(e.Location.X, e.Location.Y), false);
     }
 
     private void OnMouseUp(object? sender, MouseEventArgs e)
     {
-        core?.InvokePointerUp(new LvcPoint(e.Location.X, e.Location.Y));
+        core?.InvokePointerUp(new LvcPoint(e.Location.X, e.Location.Y), false);
     }
 }

@@ -104,6 +104,9 @@
     <Compile Update="Events\Polar\View.xaml.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Update="General\ConditionalDraw\View.xaml.cs">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Update="General\ChartToImage\View.xaml.cs">
       <SubType>Code</SubType>
     </Compile>
@@ -114,6 +117,9 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Update="General\MultiThreading\View.xaml.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Update="General\VisualElements\View.xaml.cs">
       <SubType>Code</SubType>
     </Compile>
     <Compile Update="General\Sections2\View.xaml.cs">
@@ -189,6 +195,9 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Update="Pies\Basic\View.xaml.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Update="Polar\Test\View.xaml.cs">
       <SubType>Code</SubType>
     </Compile>
     <Compile Update="Polar\Coordinates\View.xaml.cs">
@@ -368,6 +377,10 @@
       <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>
       <SubType>Designer</SubType>
     </Page>
+    <Page Update="General\ConditionalDraw\View.xaml">
+      <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Update="General\ChartToImage\View.xaml">
       <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>
       <SubType>Designer</SubType>
@@ -381,6 +394,10 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Update="General\MultiThreading\View.xaml">
+      <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Update="General\VisualElements\View.xaml">
       <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>
       <SubType>Designer</SubType>
     </Page>
@@ -508,6 +525,11 @@
     <Page Update="Pies\Basic\View.xaml">
       <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>
       <SubType>Designer</SubType>
+    </Page>
+    <Page Update="Polar\Test\View.xaml">
+      <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Update="Polar\Coordinates\View.xaml">
       <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>

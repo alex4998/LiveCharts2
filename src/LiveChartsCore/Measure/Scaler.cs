@@ -180,7 +180,7 @@ public class Scaler
     public double MinVal { get; private set; }
 
     /// <summary>
-    /// Converts to pixels.
+    /// Measures an absolute value in pixels.
     /// </summary>
     /// <param name="value">The value.</param>
     /// <returns></returns>
@@ -188,16 +188,17 @@ public class Scaler
     {
         unchecked
         {
-            return _orientation == AxisOrientation.X
-                ? (float)(_minPx + (value - MinVal) * _m - (_minPx + (0 - MinVal) * _m))
-                : (float)(_minPx + (0 - MinVal) * _m - (_minPx + (value - MinVal) * _m));
+            return Math.Abs(
+                _orientation == AxisOrientation.X
+                    ? (float)(_minPx + (value - MinVal) * _m - (_minPx + (0 - MinVal) * _m))
+                    : (float)(_minPx + (0 - MinVal) * _m - (_minPx + (value - MinVal) * _m)));
         }
     }
 
     /// <summary>
-    /// Converts to pixels.
+    /// Converts a given value (in chart values) to pixels.
     /// </summary>
-    /// <param name="value">The value.</param>
+    /// <param name="value">The value in chart values.</param>
     /// <returns></returns>
     public float ToPixels(double value)
     {
@@ -205,9 +206,9 @@ public class Scaler
     }
 
     /// <summary>
-    /// Converts to chart values.
+    /// Converts a given value (in pixels) to chart values.
     /// </summary>
-    /// <param name="pixels">The pixels.</param>
+    /// <param name="pixels">The value in pixels.</param>
     /// <returns></returns>
     public double ToChartValues(double pixels)
     {

@@ -56,7 +56,7 @@ public partial class MotionCanvas : IDisposable
     /// Gets or sets whether the web GL view should be used.
     /// </summary>
     [Parameter]
-    public bool UseGLView { get; set; } = false;
+    public bool UseGLView { get; set; } = true;
 
     /// <summary>
     /// Gets or sets the FPS.
@@ -106,7 +106,7 @@ public partial class MotionCanvas : IDisposable
     /// Gets or sets the pointer leave callback.
     /// </summary>
     [Parameter]
-    public EventCallback<PointerEventArgs> OnPointerLeaveCallback { get; set; }
+    public EventCallback<PointerEventArgs> OnPointerOutCallback { get; set; }
 
     /// <summary>
     /// Called when the pointer goes down.
@@ -145,12 +145,12 @@ public partial class MotionCanvas : IDisposable
     }
 
     /// <summary>
-    /// Called when the pointer leves the control.
+    /// Called when the pointer leaves the control.
     /// </summary>
     /// <param name="e"></param>
-    protected virtual void OnPointerLeave(PointerEventArgs e)
+    protected virtual void OnPointerOut(PointerEventArgs e)
     {
-        _ = OnPointerLeaveCallback.InvokeAsync(e);
+        _ = OnPointerOutCallback.InvokeAsync(e);
     }
 
     private void OnPaintGlSurface(SKPaintGLSurfaceEventArgs e)

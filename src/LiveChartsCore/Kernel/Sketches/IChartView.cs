@@ -26,6 +26,7 @@ using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel.Events;
 using LiveChartsCore.Measure;
 using LiveChartsCore.Motion;
+using LiveChartsCore.VisualElements;
 
 namespace LiveChartsCore.Kernel.Sketches;
 
@@ -106,14 +107,6 @@ public interface IChartView
     LegendPosition LegendPosition { get; set; }
 
     /// <summary>
-    /// Gets or sets the legend orientation.
-    /// </summary>
-    /// <value>
-    /// The legend orientation.
-    /// </value>
-    LegendOrientation LegendOrientation { get; set; }
-
-    /// <summary>
     /// Gets or sets the tooltip position.
     /// </summary>
     /// <value>
@@ -135,7 +128,7 @@ public interface IChartView
     /// Called when the pointer goes down on a data point or points.
     /// </summary>
     /// <param name="points">The found points.</param>
-    /// <param name="pointer">The ppointer location.</param>
+    /// <param name="pointer">The pointer location.</param>
     void OnDataPointerDown(IEnumerable<ChartPoint> points, LvcPoint pointer);
 
     /// <summary>
@@ -145,18 +138,10 @@ public interface IChartView
     object SyncContext { get; set; }
 
     /// <summary>
-    /// Sets the tooltip style.
-    /// </summary>
-    /// <param name="background">The background.</param>
-    /// <param name="textColor">Color of the text.</param>
-    void SetTooltipStyle(LvcColor background, LvcColor textColor);
-
-    /// <summary>
     /// Invokes an action in the UI thread.
     /// </summary>
     /// <param name="action"></param>
     void InvokeOnUIThread(Action action);
-
 
     /// <summary>
     /// Invalidates the control.
@@ -172,6 +157,41 @@ public interface IChartView<TDrawingContext> : IChartView
     where TDrawingContext : DrawingContext
 {
     /// <summary>
+    /// Gets or sets the legend default text paint, when null the library will use the default text paint.
+    /// </summary>
+    IPaint<TDrawingContext>? LegendTextPaint { get; set; }
+
+    /// <summary>
+    /// Gets or sets the legend background paint, when null the library will use the default background paint.
+    /// </summary>
+    IPaint<TDrawingContext>? LegendBackgroundPaint { get; set; }
+
+    /// <summary>
+    /// Gets or sets the legend text size, when null the library will use the default text size.
+    /// </summary>
+    double? LegendTextSize { get; set; }
+
+    /// <summary>
+    /// Gets or sets the tooltip default text paint, when null the library will use the default text paint.
+    /// </summary>
+    IPaint<TDrawingContext>? TooltipTextPaint { get; set; }
+
+    /// <summary>
+    /// Gets or sets the tooltip background paint, when null the library will use the default background paint.
+    /// </summary>
+    IPaint<TDrawingContext>? TooltipBackgroundPaint { get; set; }
+
+    /// <summary>
+    /// Gets or sets the tooltip text size, when null the library will use the default text size.
+    /// </summary>
+    double? TooltipTextSize { get; set; }
+
+    /// <summary>
+    /// Gets or sets the chart title.
+    /// </summary>
+    VisualElement<TDrawingContext>? Title { get; set; }
+
+    /// <summary>
     /// Occurs before the chart is measured, this is the first step before the chart updates.
     /// </summary>
     event ChartEventHandler<TDrawingContext>? Measuring;
@@ -185,6 +205,11 @@ public interface IChartView<TDrawingContext> : IChartView
     /// Occurs when a chart update finished, just when the drawing loop finished.
     /// </summary>
     event ChartEventHandler<TDrawingContext>? UpdateFinished;
+
+    /// <summary>
+    /// Occurs when the pointer goes down over a visual element.
+    /// </summary>
+    event VisualElementHandler<TDrawingContext> VisualElementsPointerDown;
 
     /// <summary>
     /// Gets or sets a value indicating whether the automatic updates are enabled.
@@ -203,20 +228,25 @@ public interface IChartView<TDrawingContext> : IChartView
     MotionCanvas<TDrawingContext> CoreCanvas { get; }
 
     /// <summary>
-    /// Gets the legend.
+    /// Gets or sets the legend.
     /// </summary>
     /// <value>
     /// The legend.
     /// </value>
-    IChartLegend<TDrawingContext>? Legend { get; }
+    IChartLegend<TDrawingContext>? Legend { get; set; }
 
     /// <summary>
-    /// Gets the tooltip.
+    /// Gets or sets the tooltip.
     /// </summary>
     /// <value>
     /// The tooltip.
     /// </value>
-    IChartTooltip<TDrawingContext>? Tooltip { get; }
+    IChartTooltip<TDrawingContext>? Tooltip { get; set; }
+
+    /// <summary>
+    /// Gets or sets the visual elements.
+    /// </summary>
+    IEnumerable<ChartElement<TDrawingContext>> VisualElements { get; set; }
 
     /// <summary>
     /// Shows the tool tip based on the given points.
@@ -228,4 +258,26 @@ public interface IChartView<TDrawingContext> : IChartView
     /// Hides the tool tip.
     /// </summary>
     void HideTooltip();
+
+    /// <summary>
+    /// Called when the pointer goes down on a visual element(s).
+    /// </summary>
+    /// <param name="visualElements">The visual elements.</param>
+    /// <param name="pointer">The pointer location.</param>
+    void OnVisualElementPointerDown(IEnumerable<VisualElement<TDrawingContext>> visualElements, LvcPoint pointer);
+
+    /// <summary>
+    /// Gets all the <see cref="ChartPoint"/> that contain the given point.
+    /// </summary>
+    /// <param name="point">The given point.</param>
+    /// <param name="strategy">The finding strategy, default is <see cref="TooltipFindingStrategy.Automatic"/>.</param>
+    /// <returns>An enumerable of <see cref="ChartPoint"/>.</returns>
+    IEnumerable<ChartPoint> GetPointsAt(LvcPoint point, TooltipFindingStrategy strategy = TooltipFindingStrategy.Automatic);
+
+    /// <summary>
+    /// Gets all the <see cref="VisualElement{TDrawingContext}"/> that contain the given point.
+    /// </summary>
+    /// <param name="point">The given point.</param>
+    /// <returns>An enumerable of <see cref="VisualElement{TDrawingContext}"/>.</returns>
+    IEnumerable<VisualElement<TDrawingContext>> GetVisualsAt(LvcPoint point);
 }

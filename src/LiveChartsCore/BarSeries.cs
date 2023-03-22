@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
 using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel;
 using LiveChartsCore.Kernel.Drawing;
@@ -60,71 +61,37 @@ public abstract class BarSeries<TModel, TVisual, TLabel, TDrawingContext>
 
     /// <inheritdoc cref="IBarSeries{TDrawingContext}.GroupPadding"/>
     [Obsolete($"Replace by {nameof(Padding)} property.")]
-    public double GroupPadding { get => _pading; set { _pading = value; OnPropertyChanged(); } }
+    public double GroupPadding { get => _pading; set => SetProperty(ref _pading, value); }
 
     /// <inheritdoc cref="IBarSeries{TDrawingContext}.Padding"/>
-    public double Padding { get => _pading; set { _pading = value; OnPropertyChanged(); } }
+    public double Padding { get => _pading; set => SetProperty(ref _pading, value); }
 
     /// <inheritdoc cref="IBarSeries{TDrawingContext}.MaxBarWidth"/>
-    public double MaxBarWidth { get => _maxBarWidth; set { _maxBarWidth = value; OnPropertyChanged(); } }
+    public double MaxBarWidth { get => _maxBarWidth; set => SetProperty(ref _maxBarWidth, value); }
 
     /// <inheritdoc cref="IBarSeries{TDrawingContext}.IgnoresBarPosition"/>
-    public bool IgnoresBarPosition { get => _ignoresBarPosition; set { _ignoresBarPosition = value; OnPropertyChanged(); } }
+    public bool IgnoresBarPosition { get => _ignoresBarPosition; set => SetProperty(ref _ignoresBarPosition, value); }
 
     /// <inheritdoc cref="IBarSeries{TDrawingContext}.Rx"/>
-    public double Rx { get => _rx; set { _rx = value; OnPropertyChanged(); } }
+    public double Rx { get => _rx; set => SetProperty(ref _rx, value); }
 
     /// <inheritdoc cref="IBarSeries{TDrawingContext}.Ry"/>
-    public double Ry { get => _ry; set { _ry = value; OnPropertyChanged(); } }
+    public double Ry { get => _ry; set => SetProperty(ref _ry, value); }
 
-    /// <summary>
-    /// Called when the paint context changes.
-    /// </summary>
-    protected override void OnSeriesMiniatureChanged()
+    /// <inheritdoc cref="Series{TModel, TVisual, TLabel, TDrawingContext}.GetMiniatresSketch"/>
+    public override Sketch<TDrawingContext> GetMiniatresSketch()
     {
-        var context = new CanvasSchedule<TDrawingContext>();
-        var w = LegendShapeSize;
-        var sh = 0f;
+        var schedules = new List<PaintSchedule<TDrawingContext>>();
 
-        if (Stroke is not null)
+        if (Fill is not null) schedules.Add(BuildMiniatureSchedule(Fill, new TVisual()));
+        if (Stroke is not null) schedules.Add(BuildMiniatureSchedule(Stroke, new TVisual()));
+
+        return new Sketch<TDrawingContext>()
         {
-            var strokeClone = Stroke.CloneTask();
-            var st = Stroke.StrokeThickness;
-            if (st > MaxSeriesStroke)
-            {
-                st = MaxSeriesStroke;
-                strokeClone.StrokeThickness = MaxSeriesStroke;
-            }
-
-            var visual = new TVisual
-            {
-                X = st + MaxSeriesStroke - st,
-                Y = st + MaxSeriesStroke - st,
-                Height = (float)LegendShapeSize,
-                Width = (float)LegendShapeSize
-            };
-            sh = st;
-            strokeClone.ZIndex = 1;
-            context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(strokeClone, visual));
-        }
-
-        if (Fill is not null)
-        {
-            var fillClone = Fill.CloneTask();
-            var visual = new TVisual
-            {
-                X = sh + MaxSeriesStroke - sh,
-                Y = sh + MaxSeriesStroke - sh,
-                Height = (float)LegendShapeSize,
-                Width = (float)LegendShapeSize
-            };
-            context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(fillClone, visual));
-        }
-
-        context.Width = w + MaxSeriesStroke * 2;
-        context.Height = w + MaxSeriesStroke * 2;
-
-        CanvasSchedule = context;
+            Height = MiniatureShapeSize,
+            Width = MiniatureShapeSize,
+            PaintSchedules = schedules
+        };
     }
 
     /// <summary>

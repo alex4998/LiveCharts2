@@ -69,10 +69,10 @@ public class StepLineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeome
     }
 
     /// <inheritdoc cref="IStepLineSeries{TDrawingContext}.EnableNullSplitting"/>
-    public bool EnableNullSplitting { get => _enableNullSplitting; set { _enableNullSplitting = value; OnPropertyChanged(); } }
+    public bool EnableNullSplitting { get => _enableNullSplitting; set => SetProperty(ref _enableNullSplitting, value); }
 
     /// <inheritdoc cref="IStepLineSeries{TDrawingContext}.GeometrySize"/>
-    public double GeometrySize { get => _geometrySize; set { _geometrySize = (float)value; OnPropertyChanged(); } }
+    public double GeometrySize { get => _geometrySize; set => SetProperty(ref _geometrySize, (float)value); }
 
     /// <inheritdoc cref="IStepLineSeries{TDrawingContext}.GeometryFill"/>
     public IPaint<TDrawingContext>? GeometryFill
@@ -88,8 +88,8 @@ public class StepLineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeome
         set => SetPaintProperty(ref _geometryStroke, value, true);
     }
 
-    /// <inheritdoc cref="ChartElement{TDrawingContext}.Measure(Chart{TDrawingContext})"/>
-    public override void Measure(Chart<TDrawingContext> chart)
+    /// <inheritdoc cref="ChartElement{TDrawingContext}.Invalidate(Chart{TDrawingContext})"/>
+    public override void Invalidate(Chart<TDrawingContext> chart)
     {
         var cartesianChart = (CartesianChart<TDrawingContext>)chart;
         var primaryAxis = cartesianChart.YAxes[ScalesYAt];
@@ -99,8 +99,8 @@ public class StepLineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeome
         var drawMarginSize = cartesianChart.DrawMarginSize;
         var secondaryScale = secondaryAxis.GetNextScaler(cartesianChart);
         var primaryScale = primaryAxis.GetNextScaler(cartesianChart);
-        var actualSecondaryScale = secondaryAxis.GetActualScalerScaler(cartesianChart);
-        var actualPrimaryScale = primaryAxis.GetActualScalerScaler(cartesianChart);
+        var actualSecondaryScale = secondaryAxis.GetActualScaler(cartesianChart);
+        var actualPrimaryScale = primaryAxis.GetActualScaler(cartesianChart);
 
         var gs = _geometrySize;
         var hgs = gs / 2f;
@@ -129,7 +129,7 @@ public class StepLineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeome
         var dls = (float)DataLabelsSize;
 
         var segmentI = 0;
-        var toDeletePoints = new HashSet<ChartPoint>(everFetched);
+        var pointsCleanup = ChartPointCleanupContext.For(everFetched);
 
         if (!_strokePathHelperDictionary.TryGetValue(chart.Canvas.Sync, out var strokePathHelperContainer))
         {
@@ -239,10 +239,10 @@ public class StepLineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeome
 
                 _ = everFetched.Add(point);
 
-                if (GeometryFill is not null) GeometryFill.AddGeometryToPaintTask(cartesianChart.Canvas, visual.Geometry);
-                if (GeometryStroke is not null) GeometryStroke.AddGeometryToPaintTask(cartesianChart.Canvas, visual.Geometry);
+                GeometryFill?.AddGeometryToPaintTask(cartesianChart.Canvas, visual.Geometry);
+                GeometryStroke?.AddGeometryToPaintTask(cartesianChart.Canvas, visual.Geometry);
 
-                visual.StepSegment.Id = point.Context.Index;
+                visual.StepSegment.Id = point.Context.Entity.EntityIndex;
 
                 if (Fill is not null) fillVector.AddConsecutiveSegment(visual.StepSegment, !IsFirstDraw);
                 if (Stroke is not null) strokeVector.AddConsecutiveSegment(visual.StepSegment, !IsFirstDraw);
@@ -268,9 +268,11 @@ public class StepLineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeome
 
                 var hags = gs < 8 ? 8 : gs;
 
-                point.Context.HoverArea = new RectangleHoverArea(x - uwx * 0.5f, y - hgs, uwx, gs);
+                if (point.Context.HoverArea is not RectangleHoverArea ha)
+                    point.Context.HoverArea = ha = new RectangleHoverArea();
+                _ = ha.SetDimensions(x - uwx * 0.5f, y - hgs, uwx, gs);
 
-                _ = toDeletePoints.Remove(point);
+                pointsCleanup.Clean(point);
 
                 if (DataLabelsPaint is not null)
                 {
@@ -333,12 +335,12 @@ public class StepLineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeome
         {
             var iFill = fillPathHelperContainer.Count - 1;
             var fillHelper = fillPathHelperContainer[iFill];
-            if (Fill is not null) Fill.RemoveGeometryFromPainTask(cartesianChart.Canvas, fillHelper);
+            Fill?.RemoveGeometryFromPainTask(cartesianChart.Canvas, fillHelper);
             fillPathHelperContainer.RemoveAt(iFill);
 
             var iStroke = strokePathHelperContainer.Count - 1;
             var strokeHelper = strokePathHelperContainer[iStroke];
-            if (Stroke is not null) Stroke.RemoveGeometryFromPainTask(cartesianChart.Canvas, strokeHelper);
+            Stroke?.RemoveGeometryFromPainTask(cartesianChart.Canvas, strokeHelper);
             strokePathHelperContainer.RemoveAt(iStroke);
         }
 
@@ -349,147 +351,45 @@ public class StepLineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeome
             DataLabelsPaint.ZIndex = actualZIndex + 0.5;
         }
 
-        foreach (var point in toDeletePoints)
-        {
-            if (point.Context.Chart != cartesianChart.View) continue;
-            SoftDeleteOrDisposePoint(point, primaryScale, secondaryScale);
-            _ = everFetched.Remove(point);
-        }
+        pointsCleanup.CollectPoints(
+            everFetched, cartesianChart.View, primaryScale, secondaryScale, SoftDeleteOrDisposePoint);
 
         IsFirstDraw = false;
     }
 
-    /// <inheritdoc cref="ICartesianSeries{TDrawingContext}.GetBounds(CartesianChart{TDrawingContext}, ICartesianAxis, ICartesianAxis)"/>
-    public override SeriesBounds GetBounds(
-        CartesianChart<TDrawingContext> chart, ICartesianAxis secondaryAxis, ICartesianAxis primaryAxis)
+    /// <inheritdoc cref="GetRequestedGeometrySize"/>
+    protected override double GetRequestedGeometrySize()
     {
-        var baseSeriesBounds = base.GetBounds(chart, secondaryAxis, primaryAxis);
-        if (baseSeriesBounds.HasData) return baseSeriesBounds;
-        var baseBounds = baseSeriesBounds.Bounds;
-
-        var tickPrimary = primaryAxis.GetTick(chart.ControlSize, baseBounds.VisiblePrimaryBounds);
-        var tickSecondary = secondaryAxis.GetTick(chart.ControlSize, baseBounds.VisibleSecondaryBounds);
-
-        var ts = tickSecondary.Value * DataPadding.X;
-        var tp = tickPrimary.Value * DataPadding.Y;
-
-        if (baseBounds.VisibleSecondaryBounds.Delta == 0)
-        {
-            var ms = baseBounds.VisibleSecondaryBounds.Min == 0 ? 1 : baseBounds.VisibleSecondaryBounds.Min;
-            ts = 0.1 * ms * DataPadding.X;
-        }
-
-        if (baseBounds.VisiblePrimaryBounds.Delta == 0)
-        {
-            var mp = baseBounds.VisiblePrimaryBounds.Min == 0 ? 1 : baseBounds.VisiblePrimaryBounds.Min;
-            tp = 0.1 * mp * DataPadding.Y;
-        }
-
-        var rgs = (GeometrySize + (GeometryStroke?.StrokeThickness ?? 0)) * 0.5f;
-
-        return
-            new SeriesBounds(
-                new DimensionalBounds
-                {
-                    SecondaryBounds = new Bounds
-                    {
-                        Max = baseBounds.SecondaryBounds.Max + ts,
-                        Min = baseBounds.SecondaryBounds.Min - ts,
-                        MinDelta = baseBounds.SecondaryBounds.MinDelta,
-                        PaddingMax = ts,
-                        PaddingMin = ts,
-                        RequestedGeometrySize = rgs
-                    },
-                    PrimaryBounds = new Bounds
-                    {
-                        Max = baseBounds.PrimaryBounds.Max + tp,
-                        Min = baseBounds.PrimaryBounds.Min - tp,
-                        MinDelta = baseBounds.PrimaryBounds.MinDelta,
-                        PaddingMax = tp,
-                        PaddingMin = tp,
-                        RequestedGeometrySize = rgs
-                    },
-                    VisibleSecondaryBounds = new Bounds
-                    {
-                        Max = baseBounds.VisibleSecondaryBounds.Max + ts,
-                        Min = baseBounds.VisibleSecondaryBounds.Min - ts
-                    },
-                    VisiblePrimaryBounds = new Bounds
-                    {
-                        Max = baseBounds.VisiblePrimaryBounds.Max + tp,
-                        Min = baseBounds.VisiblePrimaryBounds.Min - tp
-                    }
-                }, false);
+        return (GeometrySize + (GeometryStroke?.StrokeThickness ?? 0)) * 0.5f;
     }
 
-    /// <inheritdoc cref="ChartSeries{TModel, TVisual, TLabel, TDrawingContext}.OnSeriesMiniatureChanged"/>
-    protected override void OnSeriesMiniatureChanged()
+    /// <inheritdoc cref="Series{TModel, TVisual, TLabel, TDrawingContext}.GetMiniatresSketch"/>
+    public override Sketch<TDrawingContext> GetMiniatresSketch()
     {
-        var context = new CanvasSchedule<TDrawingContext>();
-        var lss = (float)LegendShapeSize;
-        var w = LegendShapeSize;
-        var sh = 0f;
+        var schedules = new List<PaintSchedule<TDrawingContext>>();
 
-        if (_geometryStroke is not null)
+        if (GeometryFill is not null) schedules.Add(BuildMiniatureSchedule(GeometryFill, new TVisual()));
+        else if (Fill is not null) schedules.Add(BuildMiniatureSchedule(Fill, new TVisual()));
+
+        if (GeometryStroke is not null) schedules.Add(BuildMiniatureSchedule(GeometryStroke, new TVisual()));
+        else if (Stroke is not null) schedules.Add(BuildMiniatureSchedule(Stroke, new TVisual()));
+
+        return new Sketch<TDrawingContext>()
         {
-            var strokeClone = _geometryStroke.CloneTask();
-            var st = _geometryStroke.StrokeThickness;
-            if (st > MaxSeriesStroke)
-            {
-                st = MaxSeriesStroke;
-                strokeClone.StrokeThickness = MaxSeriesStroke;
-            }
+            Height = MiniatureShapeSize,
+            Width = MiniatureShapeSize,
+            PaintSchedules = schedules
+        };
+    }
 
-            var visual = new TVisual
-            {
-                X = st + MaxSeriesStroke - st,
-                Y = st + MaxSeriesStroke - st,
-                Height = lss,
-                Width = lss
-            };
-            sh = st;
-            strokeClone.ZIndex = 1;
-            context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(strokeClone, visual));
-        }
-        else if (Stroke is not null)
-        {
-            var strokeClone = Stroke.CloneTask();
-            var st = strokeClone.StrokeThickness;
-            if (st > MaxSeriesStroke)
-            {
-                st = MaxSeriesStroke;
-                strokeClone.StrokeThickness = MaxSeriesStroke;
-            }
-
-            var visual = new TVisual
-            {
-                X = st + MaxSeriesStroke - st,
-                Y = st + MaxSeriesStroke - st,
-                Height = lss,
-                Width = lss
-            };
-            sh = st;
-            strokeClone.ZIndex = 1;
-            context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(strokeClone, visual));
-        }
-
-        if (_geometryFill is not null)
-        {
-            var fillClone = _geometryFill.CloneTask();
-            var visual = new TVisual { X = sh + MaxSeriesStroke - sh, Y = sh + MaxSeriesStroke - sh, Height = lss, Width = lss };
-            context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(fillClone, visual));
-        }
-        else if (Fill is not null)
-        {
-            var fillClone = Fill.CloneTask();
-            var visual = new TVisual { X = sh + MaxSeriesStroke - sh, Y = sh + MaxSeriesStroke - sh, Height = lss, Width = lss };
-            context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(fillClone, visual));
-        }
-
-        context.Width = w + MaxSeriesStroke * 2;
-        context.Height = w + MaxSeriesStroke * 2;
-
-        CanvasSchedule = context;
+    /// <inheritdoc cref="IChartSeries{TDrawingContext}.MiniatureEquals(IChartSeries{TDrawingContext})"/>
+    public override bool MiniatureEquals(IChartSeries<TDrawingContext> series)
+    {
+        return series is StepLineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry, TVisualPoint> stepSeries &&
+            Name == series.Name &&
+            !((ISeries)this).PaintsChanged &&
+            Fill == stepSeries.Fill && Stroke == stepSeries.Stroke &&
+            GeometryFill == stepSeries.GeometryFill && GeometryStroke == stepSeries.GeometryStroke;
     }
 
     /// <inheritdoc cref="Series{TModel, TVisual, TLabel, TDrawingContext}.SetDefaultPointTransitions(ChartPoint)"/>
@@ -597,7 +497,7 @@ public class StepLineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeome
     /// Gets the paint tasks.
     /// </summary>
     /// <returns></returns>
-    protected override IPaint<TDrawingContext>?[] GetPaintTasks()
+    internal override IPaint<TDrawingContext>?[] GetPaintTasks()
     {
         return new[] { Stroke, Fill, _geometryFill, _geometryStroke, DataLabelsPaint, hoverPaint };
     }

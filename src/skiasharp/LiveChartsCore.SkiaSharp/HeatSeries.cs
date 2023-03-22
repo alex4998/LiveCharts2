@@ -82,7 +82,7 @@ public class HeatSeries<TModel, TVisual, TLabel> : HeatSeries<TModel, TVisual, T
     /// </summary>
     public HeatSeries()
     {
-        if (!LiveCharts.IsConfigured) LiveCharts.Configure(LiveChartsSkiaSharp.DefaultPlatformBuilder);
-        InitializeSeries();
+        // This is required for now...
+        if (!LiveCharts.IsConfigured) LiveCharts.Configure(config => config.UseDefaults());
     }
 }

@@ -21,20 +21,23 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using LiveChartsCore.Kernel;
+using LiveChartsCore.Kernel.Sketches;
 
 namespace LiveChartsCore.Defaults;
 
 /// <summary>
 /// Defines a point with financial data.
 /// </summary>
-public class FinancialPoint : INotifyPropertyChanged
+public class FinancialPoint : IChartEntity, INotifyPropertyChanged
 {
-    private double _high;
-    private double _open;
-    private double _close;
-    private double _low;
+    private double? _high;
+    private double? _open;
+    private double? _close;
+    private double? _low;
     private DateTime _date;
 
     /// <summary>
@@ -51,13 +54,13 @@ public class FinancialPoint : INotifyPropertyChanged
     /// <param name="open">The open.</param>
     /// <param name="close">The close.</param>
     /// <param name="low">The low.</param>
-    public FinancialPoint(DateTime date, double high, double open, double close, double low)
+    public FinancialPoint(DateTime date, double? high, double? open, double? close, double? low)
     {
-        _date = date;
-        _high = high;
-        _open = open;
-        _close = close;
-        _low = low;
+        Date = date;
+        High = high;
+        Open = open;
+        Close = close;
+        Low = low;
     }
 
     /// <summary>
@@ -74,7 +77,7 @@ public class FinancialPoint : INotifyPropertyChanged
     /// <value>
     /// The high.
     /// </value>
-    public double High { get => _high; set { _high = value; OnPropertyChanged(); } }
+    public double? High { get => _high; set { _high = value; OnPropertyChanged(); } }
 
     /// <summary>
     /// Gets or sets the open.
@@ -82,7 +85,7 @@ public class FinancialPoint : INotifyPropertyChanged
     /// <value>
     /// The open.
     /// </value>
-    public double Open { get => _open; set { _open = value; OnPropertyChanged(); } }
+    public double? Open { get => _open; set { _open = value; OnPropertyChanged(); } }
 
     /// <summary>
     /// Gets or sets the close.
@@ -90,7 +93,7 @@ public class FinancialPoint : INotifyPropertyChanged
     /// <value>
     /// The close.
     /// </value>
-    public double Close { get => _close; set { _close = value; OnPropertyChanged(); } }
+    public double? Close { get => _close; set { _close = value; OnPropertyChanged(); } }
 
     /// <summary>
     /// Gets or sets the low.
@@ -98,7 +101,31 @@ public class FinancialPoint : INotifyPropertyChanged
     /// <value>
     /// The low.
     /// </value>
-    public double Low { get => _low; set { _low = value; OnPropertyChanged(); } }
+    public double? Low { get => _low; set { _low = value; OnPropertyChanged(); } }
+
+    /// <inheritdoc cref="IChartEntity.EntityIndex"/>
+#if NET5_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonIgnore]
+#else
+    [Newtonsoft.Json.JsonIgnore]
+#endif
+    public int EntityIndex { get; set; }
+
+    /// <inheritdoc cref="IChartEntity.ChartPoints"/>
+#if NET5_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonIgnore]
+#else
+    [Newtonsoft.Json.JsonIgnore]
+#endif
+    public Dictionary<IChartView, ChartPoint>? ChartPoints { get; set; }
+
+    /// <inheritdoc cref="IChartEntity.Coordinate"/>
+#if NET5_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonIgnore]
+#else
+    [Newtonsoft.Json.JsonIgnore]
+#endif
+    public Coordinate Coordinate { get; private set; } = Coordinate.Empty;
 
     /// <summary>
     /// Occurs when a property value changes.
@@ -112,6 +139,9 @@ public class FinancialPoint : INotifyPropertyChanged
     /// <param name="propertyName">Name of the property.</param>
     protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
-        PropertyChanged?.Invoke(propertyName, new PropertyChangedEventArgs(propertyName));
+        Coordinate = _open is null || _high is null || _low is null || _close is null
+            ? Coordinate.Empty
+            : new(_high.Value, _date.Ticks, _open.Value, _close.Value, _low.Value);
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }

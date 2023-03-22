@@ -22,9 +22,12 @@
 
 using System.Collections.Specialized;
 using System.ComponentModel;
+using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel;
 using LiveChartsCore.Kernel.Sketches;
+using LiveChartsCore.Measure;
 using LiveChartsCore.SkiaSharpView.Drawing;
+using LiveChartsCore.VisualElements;
 using Microsoft.AspNetCore.Components;
 
 namespace LiveChartsCore.SkiaSharpView.Blazor;
@@ -35,6 +38,7 @@ public partial class PieChart : Chart, IPieChartView<SkiaSharpDrawingContext>
     private CollectionDeepObserver<ISeries>? _seriesObserver;
     private IEnumerable<ISeries> _series = new List<ISeries>();
     private double _initialRotation;
+    private bool _isClockwise = true;
     private double _maxAngle = 360;
     private double? _total;
 
@@ -46,17 +50,9 @@ public partial class PieChart : Chart, IPieChartView<SkiaSharpDrawingContext>
         base.OnInitialized();
 
         _seriesObserver = new CollectionDeepObserver<ISeries>(
-               (object? sender, NotifyCollectionChangedEventArgs e) =>
-               {
-                   if (sender is IStopNPC stop && !stop.IsNotifyingChanges) return;
-                   OnPropertyChanged();
-               },
-               (object? sender, PropertyChangedEventArgs e) =>
-               {
-                   if (sender is IStopNPC stop && !stop.IsNotifyingChanges) return;
-                   OnPropertyChanged();
-               },
-               true);
+            (object? sender, NotifyCollectionChangedEventArgs e) => OnPropertyChanged(),
+            (object? sender, PropertyChangedEventArgs e) => OnPropertyChanged(),
+            true);
     }
 
     PieChart<SkiaSharpDrawingContext> IPieChartView<SkiaSharpDrawingContext>.Core =>
@@ -76,6 +72,10 @@ public partial class PieChart : Chart, IPieChartView<SkiaSharpDrawingContext>
         }
     }
 
+    /// <inheritdoc cref="IPieChartView{TDrawingContext}.IsClockwise" />
+    [Parameter]
+    public bool IsClockwise { get => _isClockwise; set { _isClockwise = value; OnPropertyChanged(); } }
+
     /// <inheritdoc cref="IPieChartView{TDrawingContext}.InitialRotation" />
     [Parameter]
     public double InitialRotation { get => _initialRotation; set { _initialRotation = value; OnPropertyChanged(); } }
@@ -88,6 +88,25 @@ public partial class PieChart : Chart, IPieChartView<SkiaSharpDrawingContext>
     [Parameter]
     public double? Total { get => _total; set { _total = value; OnPropertyChanged(); } }
 
+    /// <inheritdoc cref="IChartView{TDrawingContext}.GetPointsAt(LvcPoint, TooltipFindingStrategy)"/>
+    public override IEnumerable<ChartPoint> GetPointsAt(LvcPoint point, TooltipFindingStrategy strategy = TooltipFindingStrategy.Automatic)
+    {
+        if (core is not PieChart<SkiaSharpDrawingContext> cc) throw new Exception("core not found");
+
+        if (strategy == TooltipFindingStrategy.Automatic)
+            strategy = cc.Series.GetTooltipFindingStrategy();
+
+        return cc.Series.SelectMany(series => series.FindHitPoints(cc, point, strategy));
+    }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.GetVisualsAt(LvcPoint)"/>
+    public override IEnumerable<VisualElement<SkiaSharpDrawingContext>> GetVisualsAt(LvcPoint point)
+    {
+        return core is not PieChart<SkiaSharpDrawingContext> cc
+            ? throw new Exception("core not found")
+            : cc.VisualElements.SelectMany(visual => ((VisualElement<SkiaSharpDrawingContext>)visual).IsHitBy(core, point));
+    }
+
     /// <summary>
     /// Initializes the core.
     /// </summary>
@@ -96,7 +115,7 @@ public partial class PieChart : Chart, IPieChartView<SkiaSharpDrawingContext>
         if (motionCanvas is null) throw new Exception("MotionCanvas component was not found");
 
         core = new PieChart<SkiaSharpDrawingContext>(
-            this, LiveChartsSkiaSharp.DefaultPlatformBuilder, motionCanvas.CanvasCore);
+            this, config => config.UseDefaults(), motionCanvas.CanvasCore);
         if (((IChartView)this).DesignerMode) return;
         core.Update();
     }
@@ -108,5 +127,6 @@ public partial class PieChart : Chart, IPieChartView<SkiaSharpDrawingContext>
 
         Series = Array.Empty<ISeries>();
         _seriesObserver = null!;
+        VisualElements = Array.Empty<ChartElement<SkiaSharpDrawingContext>>();
     }
 }

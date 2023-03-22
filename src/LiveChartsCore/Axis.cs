@@ -22,9 +22,8 @@
 
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel;
 using LiveChartsCore.Kernel.Helpers;
@@ -41,20 +40,20 @@ namespace LiveChartsCore;
 /// <typeparam name="TTextGeometry">The type of the text geometry.</typeparam>
 /// <typeparam name="TLineGeometry">The type of the line geometry.</typeparam>
 public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
-    : ChartElement<TDrawingContext>, ICartesianAxis, IPlane<TDrawingContext>
+    : ChartElement<TDrawingContext>, ICartesianAxis<TDrawingContext>, IPlane<TDrawingContext>
         where TDrawingContext : DrawingContext
         where TTextGeometry : ILabelGeometry<TDrawingContext>, new()
-        where TLineGeometry : ILineGeometry<TDrawingContext>, new()
+        where TLineGeometry : class, ILineGeometry<TDrawingContext>, new()
 {
     #region fields
 
     /// <summary>
     /// The active separators
     /// </summary>
-    protected readonly Dictionary<IChart, Dictionary<double, AxisVisualSeprator<TDrawingContext>>> activeSeparators = new();
+    protected readonly Dictionary<IChart, Dictionary<string, AxisVisualSeprator<TDrawingContext>>> activeSeparators = new();
 
-    // xo (x origin) and yo (y origin) are the distance to the center of the axis to the control bounds
     internal float _xo = 0f, _yo = 0f;
+    internal LvcSize _size;
     internal AxisOrientation _orientation;
     internal AnimatableAxisBounds _animatableBounds = new();
     internal Bounds _dataBounds = new();
@@ -76,10 +75,32 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
     private double _unitWidth = 1;
     private double _textSize = 16;
     private IPaint<TDrawingContext>? _separatorsPaint;
+    private IPaint<TDrawingContext>? _subseparatorsPaint;
+    private bool _drawTicksPath;
+    private ILineGeometry<TDrawingContext>? _ticksPath;
+    private IPaint<TDrawingContext>? _ticksPaint;
+    private IPaint<TDrawingContext>? _subticksPaint;
+    private IPaint<TDrawingContext>? _zeroPaint;
+    private ILineGeometry<TDrawingContext>? _zeroLine;
+    private ILineGeometry<TDrawingContext>? _crosshairLine;
+    private ILabelGeometry<TDrawingContext>? _crosshairLabel;
+    private IPaint<TDrawingContext>? _crosshairPaint;
+    private IPaint<TDrawingContext>? _crosshairLabelsPaint;
     private bool _showSeparatorLines = true;
     private bool _isVisible = true;
     private bool _isInverted;
+    private bool _separatorsAtCenter = true;
+    private bool _ticksAtCenter = true;
     private bool _forceStepToMin;
+    private bool _crosshairSnapEnabled;
+    private readonly float _tickLength = 6f;
+    private readonly int _subSections = 3;
+    private Align? _labelsAlignment;
+
+#if DEBUG
+    private int _stepCount;
+    private bool _inLineNamePlacement;
+#endif
 
     #endregion
 
@@ -87,6 +108,7 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
 
     float ICartesianAxis.Xo { get => _xo; set => _xo = value; }
     float ICartesianAxis.Yo { get => _yo; set => _yo = value; }
+    LvcSize ICartesianAxis.Size { get => _size; set => _size = value; }
     LvcRectangle ICartesianAxis.LabelsDesiredSize { get => _labelsDesiredSize; set => _labelsDesiredSize = value; }
     LvcRectangle ICartesianAxis.NameDesiredSize { get => _nameDesiredSize; set => _nameDesiredSize = value; }
 
@@ -102,55 +124,64 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
     public string? Name { get; set; } = null;
 
     /// <inheritdoc cref="IPlane.NameTextSize"/>
-    public double NameTextSize { get => _nameTextSize; set { _nameTextSize = value; OnPropertyChanged(); } }
+    public double NameTextSize { get => _nameTextSize; set => SetProperty(ref _nameTextSize, value); }
 
     /// <inheritdoc cref="IPlane.NamePadding"/>
-    public Padding NamePadding { get => _namePadding; set { _namePadding = value; OnPropertyChanged(); } }
+    public Padding NamePadding { get => _namePadding; set => SetProperty(ref _namePadding, value); }
+
+    /// <inheritdoc cref="ICartesianAxis.LabelsAlignment"/>
+    public Align? LabelsAlignment { get => _labelsAlignment; set => SetProperty(ref _labelsAlignment, value); }
 
     /// <inheritdoc cref="ICartesianAxis.Orientation"/>
     public AxisOrientation Orientation => _orientation;
 
     /// <inheritdoc cref="ICartesianAxis.Padding"/>
-    public Padding Padding { get => _padding; set { _padding = value; OnPropertyChanged(); } }
+    public Padding Padding { get => _padding; set => SetProperty(ref _padding, value); }
 
     /// <inheritdoc cref="IPlane.Labeler"/>
-    public Func<double, string> Labeler { get => _labeler; set { _labeler = value; OnPropertyChanged(); } }
+    public Func<double, string> Labeler { get => _labeler; set => SetProperty(ref _labeler, value); }
 
     /// <inheritdoc cref="IPlane.MinStep"/>
-    public double MinStep { get => _minStep; set { _minStep = value; OnPropertyChanged(); } }
+    public double MinStep { get => _minStep; set => SetProperty(ref _minStep, value); }
 
     /// <inheritdoc cref="IPlane.ForceStepToMin"/>
-    public bool ForceStepToMin { get => _forceStepToMin; set { _forceStepToMin = value; OnPropertyChanged(); } }
+    public bool ForceStepToMin { get => _forceStepToMin; set => SetProperty(ref _forceStepToMin, value); }
 
     /// <inheritdoc cref="IPlane.MinLimit"/>
-    public double? MinLimit { get => _minLimit; set { _minLimit = value; OnPropertyChanged(); } }
+    public double? MinLimit { get => _minLimit; set => SetProperty(ref _minLimit, value); }
 
     /// <inheritdoc cref="IPlane.MaxLimit"/>
-    public double? MaxLimit { get => _maxLimit; set { _maxLimit = value; OnPropertyChanged(); } }
+    public double? MaxLimit { get => _maxLimit; set => SetProperty(ref _maxLimit, value); }
 
     /// <inheritdoc cref="IPlane.UnitWidth"/>
-    public double UnitWidth { get => _unitWidth; set { _unitWidth = value; OnPropertyChanged(); } }
+    public double UnitWidth { get => _unitWidth; set => SetProperty(ref _unitWidth, value); }
 
     /// <inheritdoc cref="ICartesianAxis.Position"/>
-    public AxisPosition Position { get => _position; set { _position = value; OnPropertyChanged(); } }
+    public AxisPosition Position { get => _position; set => SetProperty(ref _position, value); }
 
     /// <inheritdoc cref="IPlane.LabelsRotation"/>
-    public double LabelsRotation { get => _labelsRotation; set { _labelsRotation = value; OnPropertyChanged(); } }
+    public double LabelsRotation { get => _labelsRotation; set => SetProperty(ref _labelsRotation, value); }
 
     /// <inheritdoc cref="IPlane.TextSize"/>
-    public double TextSize { get => _textSize; set { _textSize = value; OnPropertyChanged(); } }
+    public double TextSize { get => _textSize; set => SetProperty(ref _textSize, value); }
 
     /// <inheritdoc cref="IPlane.Labels"/>
     public IList<string>? Labels { get; set; }
 
     /// <inheritdoc cref="IPlane.ShowSeparatorLines"/>
-    public bool ShowSeparatorLines { get => _showSeparatorLines; set { _showSeparatorLines = value; OnPropertyChanged(); } }
+    public bool ShowSeparatorLines { get => _showSeparatorLines; set => SetProperty(ref _showSeparatorLines, value); }
 
     /// <inheritdoc cref="IPlane.IsVisible"/>
-    public bool IsVisible { get => _isVisible; set { _isVisible = value; OnPropertyChanged(); } }
+    public bool IsVisible { get => _isVisible; set => SetProperty(ref _isVisible, value); }
 
     /// <inheritdoc cref="IPlane.IsInverted"/>
-    public bool IsInverted { get => _isInverted; set { _isInverted = value; OnPropertyChanged(); } }
+    public bool IsInverted { get => _isInverted; set => SetProperty(ref _isInverted, value); }
+
+    /// <inheritdoc cref="ICartesianAxis.SeparatorsAtCenter"/>
+    public bool SeparatorsAtCenter { get => _separatorsAtCenter; set => SetProperty(ref _separatorsAtCenter, value); }
+
+    /// <inheritdoc cref="ICartesianAxis.TicksAtCenter"/>
+    public bool TicksAtCenter { get => _ticksAtCenter; set => SetProperty(ref _ticksAtCenter, value); }
 
     /// <inheritdoc cref="IPlane{TDrawingContext}.NamePaint"/>
     public IPaint<TDrawingContext>? NamePaint
@@ -170,8 +201,62 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
     public IPaint<TDrawingContext>? SeparatorsPaint
     {
         get => _separatorsPaint;
-        set => SetPaintProperty(ref _separatorsPaint, value);
+        set => SetPaintProperty(ref _separatorsPaint, value, true);
     }
+
+    /// <inheritdoc cref="ICartesianAxis{TDrawingContext}.SubseparatorsPaint"/>
+    public IPaint<TDrawingContext>? SubseparatorsPaint
+    {
+        get => _subseparatorsPaint;
+        set => SetPaintProperty(ref _subseparatorsPaint, value, true);
+    }
+
+    /// <inheritdoc cref="ICartesianAxis{TDrawingContext}.DrawTicksPath"/>
+    public bool DrawTicksPath { get => _drawTicksPath; set => SetProperty(ref _drawTicksPath, value); }
+
+    /// <inheritdoc cref="ICartesianAxis{TDrawingContext}.TicksPaint"/>
+    public IPaint<TDrawingContext>? TicksPaint
+    {
+        get => _ticksPaint;
+        set => SetPaintProperty(ref _ticksPaint, value, true);
+    }
+
+    /// <inheritdoc cref="ICartesianAxis{TDrawingContext}.SubticksPaint"/>
+    public IPaint<TDrawingContext>? SubticksPaint
+    {
+        get => _subticksPaint;
+        set => SetPaintProperty(ref _subticksPaint, value, true);
+    }
+
+    /// <inheritdoc cref="ICartesianAxis{TDrawingContext}.ZeroPaint"/>
+    public IPaint<TDrawingContext>? ZeroPaint
+    {
+        get => _zeroPaint;
+        set => SetPaintProperty(ref _zeroPaint, value, true);
+    }
+
+    /// <inheritdoc cref="ICartesianAxis{TDrawingContext}.CrosshairPaint"/>
+    public IPaint<TDrawingContext>? CrosshairPaint
+    {
+        get => _crosshairPaint;
+        set => SetPaintProperty(ref _crosshairPaint, value, true);
+    }
+
+    /// <inheritdoc cref="ICartesianAxis{TDrawingContext}.CrosshairLabelsPaint"/>
+    public IPaint<TDrawingContext>? CrosshairLabelsPaint
+    {
+        get => _crosshairLabelsPaint;
+        set => SetPaintProperty(ref _crosshairLabelsPaint, value);
+    }
+
+    /// <inheritdoc cref="ICartesianAxis{TDrawingContext}.CrosshairLabelsBackground"/>
+    public LvcColor? CrosshairLabelsBackground { get; set; }
+
+    /// <inheritdoc cref="ICartesianAxis{TDrawingContext}.CrosshairPadding"/>
+    public Padding? CrosshairPadding { get; set; }
+
+    /// <inheritdoc cref="ICartesianAxis{TDrawingContext}.CrosshairSnapEnabled" />
+    public bool CrosshairSnapEnabled { get => _crosshairSnapEnabled; set => SetProperty(ref _crosshairSnapEnabled, value); }
 
     /// <summary>
     /// 
@@ -191,35 +276,35 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
     /// <inheritdoc cref="IPlane.EasingFunction"/>
     public Func<float, float>? EasingFunction { get; set; }
 
-    /// <inheritdoc cref="IStopNPC.IsNotifyingChanges"/>
-    bool IStopNPC.IsNotifyingChanges { get; set; }
+    /// <inheritdoc cref="ICartesianAxis.MinZoomDelta"/>
+    public double? MinZoomDelta { get; set; }
+
+    /// <inheritdoc cref="ICartesianAxis.MinZoomDelta"/>
+    public bool InLineNamePlacement { get => _inLineNamePlacement; set => SetProperty(ref _inLineNamePlacement, value); }
 
     #endregion
 
     /// <inheritdoc cref="ICartesianAxis.Initialized"/>
     public event Action<ICartesianAxis>? Initialized;
 
-    /// <summary>
-    /// Occurs when a property value changes.
-    /// </summary>
-    /// <returns></returns>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    /// <inheritdoc cref="ChartElement{TDrawingContext}.Measure(Chart{TDrawingContext})"/>
-    public override void Measure(Chart<TDrawingContext> chart)
+    /// <inheritdoc cref="ChartElement{TDrawingContext}.Invalidate(Chart{TDrawingContext})"/>
+    public override void Invalidate(Chart<TDrawingContext> chart)
     {
+#if DEBUG
+        _stepCount = 0;
+#endif
+
         var cartesianChart = (CartesianChart<TDrawingContext>)chart;
 
         var controlSize = cartesianChart.ControlSize;
         var drawLocation = cartesianChart.DrawMarginLocation;
         var drawMarginSize = cartesianChart.DrawMarginSize;
 
-        _animatableBounds.MinLimit = MinLimit;
-        _animatableBounds.MaxLimit = MaxLimit;
-        _animatableBounds.MaxDataBound = _dataBounds.Max;
-        _animatableBounds.MinDataBound = _dataBounds.Min;
-        _animatableBounds.MaxVisibleBound = _visibleDataBounds.Max;
-        _animatableBounds.MinVisibleBound = _visibleDataBounds.Min;
+        var max = MaxLimit is null ? _visibleDataBounds.Max : MaxLimit.Value;
+        var min = MinLimit is null ? _visibleDataBounds.Min : MinLimit.Value;
+
+        _animatableBounds.MaxVisibleBound = max;
+        _animatableBounds.MinVisibleBound = min;
 
         if (!_animatableBounds.HasPreviousState)
         {
@@ -235,9 +320,9 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
         }
 
         var scale = this.GetNextScaler(cartesianChart);
-        var actualScale = this.GetActualScalerScaler(cartesianChart);
+        var actualScale = this.GetActualScaler(cartesianChart) ?? scale;
 
-        var axisTick = this.GetTick(drawMarginSize);
+        var axisTick = this.GetTick(drawMarginSize, null, GetPossibleMaxLabelSize(chart));
 
         var labeler = Labeler;
         if (Labels is not null)
@@ -260,11 +345,32 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
             if (LabelsPaint.ZIndex == 0) LabelsPaint.ZIndex = -0.9;
             cartesianChart.Canvas.AddDrawableTask(LabelsPaint);
         }
+        if (SubseparatorsPaint is not null)
+        {
+            if (SubseparatorsPaint.ZIndex == 0) SubseparatorsPaint.ZIndex = -1;
+            SubseparatorsPaint.SetClipRectangle(cartesianChart.Canvas, new LvcRectangle(drawLocation, drawMarginSize));
+            cartesianChart.Canvas.AddDrawableTask(SubseparatorsPaint);
+        }
         if (SeparatorsPaint is not null)
         {
             if (SeparatorsPaint.ZIndex == 0) SeparatorsPaint.ZIndex = -1;
             SeparatorsPaint.SetClipRectangle(cartesianChart.Canvas, new LvcRectangle(drawLocation, drawMarginSize));
             cartesianChart.Canvas.AddDrawableTask(SeparatorsPaint);
+        }
+        var ticksClipRectangle = _orientation == AxisOrientation.X
+                ? new LvcRectangle(new LvcPoint(drawLocation.X, 0), new LvcSize(drawMarginSize.Width, controlSize.Height))
+                : new LvcRectangle(new LvcPoint(0, drawLocation.Y), new LvcSize(controlSize.Width, drawMarginSize.Height));
+        if (TicksPaint is not null)
+        {
+            if (TicksPaint.ZIndex == 0) TicksPaint.ZIndex = -1;
+            TicksPaint.SetClipRectangle(cartesianChart.Canvas, ticksClipRectangle);
+            cartesianChart.Canvas.AddDrawableTask(TicksPaint);
+        }
+        if (SubticksPaint is not null)
+        {
+            if (SubticksPaint.ZIndex == 0) SubticksPaint.ZIndex = -1;
+            SubticksPaint.SetClipRectangle(cartesianChart.Canvas, ticksClipRectangle);
+            cartesianChart.Canvas.AddDrawableTask(SubticksPaint);
         }
 
         var lyi = drawLocation.Y;
@@ -291,73 +397,97 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
         var r = (float)_labelsRotation;
         var hasRotation = Math.Abs(r) > 0.01f;
 
-        var max = MaxLimit is null ? _visibleDataBounds.Max : MaxLimit.Value;
-        var min = MinLimit is null ? _visibleDataBounds.Min : MinLimit.Value;
-
         var start = Math.Truncate(min / s) * s;
         if (!activeSeparators.TryGetValue(cartesianChart, out var separators))
         {
-            separators = new Dictionary<double, AxisVisualSeprator<TDrawingContext>>();
+            separators = new Dictionary<string, AxisVisualSeprator<TDrawingContext>>();
             activeSeparators[cartesianChart] = separators;
         }
 
         if (Name is not null && NamePaint is not null)
-        {
-            var isNew = false;
+            DrawName(cartesianChart, (float)NameTextSize, lxi, lxj, lyi, lyj);
 
-            if (_nameGeometry is null)
-            {
-                _nameGeometry = new TTextGeometry
-                {
-                    TextSize = size,
-                    HorizontalAlign = Align.Middle,
-                    VerticalAlign = Align.Middle
-                };
+        if (NamePaint is not null && _nameGeometry is not null)
+            NamePaint.AddGeometryToPaintTask(cartesianChart.Canvas, _nameGeometry);
 
-                _ = _nameGeometry
-                    .TransitionateProperties(
-                        nameof(_nameGeometry.X),
-                        nameof(_nameGeometry.Y)
-                    );
-                     //.WithAnimation(animation =>
-                     //    animation
-                     //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
-                     //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
-
-                isNew = true;
-            }
-
-            _nameGeometry.Padding = NamePadding;
-            _nameGeometry.Text = Name;
-            _nameGeometry.TextSize = (float)NameTextSize;
-
-            if (_orientation == AxisOrientation.X)
-            {
-                _nameGeometry.X = (lxi + lxj) * 0.5f;
-                _nameGeometry.Y = _nameDesiredSize.Y + _nameDesiredSize.Height * 0.5f;
-            }
-            else
-            {
-                _nameGeometry.RotateTransform = -90;
-                _nameGeometry.X = _nameDesiredSize.X + _nameDesiredSize.Width * 0.5f;
-                _nameGeometry.Y = (lyi + lyj) * 0.5f;
-            }
-
-            if (isNew) _nameGeometry.CompleteTransition(null);
-        }
+        var hasActivePaint =
+            NamePadding is not null || SeparatorsPaint is not null || LabelsPaint is not null ||
+            TicksPaint is not null || SubticksPaint is not null || SubseparatorsPaint is not null;
 
         var measured = new HashSet<AxisVisualSeprator<TDrawingContext>>();
 
-        for (var i = start; i <= max; i += s)
+        if (ZeroPaint is not null)
         {
-            if (i < min) continue;
+            float x, y;
+            if (_orientation == AxisOrientation.X)
+            {
+                x = scale.ToPixels(0);
+                y = yoo;
+            }
+            else
+            {
+                x = xoo;
+                y = scale.ToPixels(0);
+            }
 
-            // - 1d + 1d is a dummy operation to fix a bug
-            // where i == 0 then calling i.ToString() returns "-0"...
-            // that dummy operation seems to hide that issue
-            // I am not completly sure of what causes that
-            // it seems that the bits storing that number (i) have the negative bit on
-            var label = labeler(i - 1d + 1d);
+            if (ZeroPaint.ZIndex == 0) ZeroPaint.ZIndex = -1;
+            ZeroPaint.SetClipRectangle(cartesianChart.Canvas, new LvcRectangle(drawLocation, drawMarginSize));
+            cartesianChart.Canvas.AddDrawableTask(ZeroPaint);
+
+            if (_zeroLine is null)
+            {
+                _zeroLine = new TLineGeometry();
+                ZeroPaint.AddGeometryToPaintTask(cartesianChart.Canvas, _zeroLine);
+                InitializeLine(_zeroLine, cartesianChart);
+                UpdateSeparator(_zeroLine, x, y, lxi, lxj, lyi, lyj, UpdateMode.UpdateAndComplete);
+            }
+
+            UpdateSeparator(_zeroLine, x, y, lxi, lxj, lyi, lyj, UpdateMode.Update);
+        }
+
+        if (TicksPaint is not null && _drawTicksPath)
+        {
+            if (_ticksPath is null)
+            {
+                _ticksPath = new TLineGeometry();
+                InitializeLine(_ticksPath, cartesianChart);
+            }
+            TicksPaint.AddGeometryToPaintTask(cartesianChart.Canvas, _ticksPath);
+
+            if (_orientation == AxisOrientation.X)
+            {
+                var yp = yoo + _size.Height * 0.5f * (_position == AxisPosition.Start ? -1 : 1);
+                _ticksPath.X = lxi;
+                _ticksPath.X1 = lxj;
+                _ticksPath.Y = yp;
+                _ticksPath.Y1 = yp;
+            }
+            else
+            {
+                var xp = xoo + _size.Width * 0.5f * (_position == AxisPosition.Start ? 1 : -1);
+                _ticksPath.X = xp;
+                _ticksPath.X1 = xp;
+                _ticksPath.Y = lyi;
+                _ticksPath.Y1 = lyj;
+            }
+
+            if (!_animatableBounds.HasPreviousState) _ticksPath.CompleteTransition(null);
+        }
+        if (TicksPaint is not null && _ticksPath is not null && !_drawTicksPath)
+            TicksPaint.RemoveGeometryFromPainTask(cartesianChart.Canvas, _ticksPath);
+
+        float txco = 0f, tyco = 0f, sxco = 0f, syco = 0f;
+
+        var uw = scale.MeasureInPixels(_unitWidth);
+        if (!_ticksAtCenter && _orientation == AxisOrientation.X) txco = uw * 0.5f;
+        if (!_ticksAtCenter && _orientation == AxisOrientation.Y) tyco = uw * 0.5f;
+        if (!_separatorsAtCenter && _orientation == AxisOrientation.X) sxco = uw * 0.5f;
+        if (!_separatorsAtCenter && _orientation == AxisOrientation.Y) sxco = uw * 0.5f;
+
+        for (var i = start - s; i <= max + s; i += s)
+        {
+            var separatorKey = Labelers.SixRepresentativeDigits(i - 1d + 1d);
+            var labelContent = i < min || i > max ? string.Empty : TryGetLabelOrLogError(labeler, i - 1d + 1d);
 
             float x, y;
             if (_orientation == AxisOrientation.X)
@@ -371,158 +501,289 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
                 y = scale.ToPixels(i);
             }
 
-            if (!separators.TryGetValue(i, out var visualSeparator))
+            float xc = 0, yc = 0;
+            if (_orientation == AxisOrientation.X)
+            {
+                xc = actualScale.ToPixels(i);
+                yc = yoo;
+            }
+            else
+            {
+                xc = xoo;
+                yc = actualScale.ToPixels(i);
+            }
+
+            if (!separators.TryGetValue(separatorKey, out var visualSeparator))
             {
                 visualSeparator = new AxisVisualSeprator<TDrawingContext>() { Value = i };
-
-                if (LabelsPaint is not null)
-                {
-                    var textGeometry = new TTextGeometry { TextSize = size };
-                    visualSeparator.Label = textGeometry;
-                    if (hasRotation) textGeometry.RotateTransform = r;
-
-                    _ = textGeometry
-                        .TransitionateProperties(
-                            nameof(textGeometry.X),
-                            nameof(textGeometry.Y),
-                            nameof(textGeometry.Opacity)
-                        );
-                        //.WithAnimation(animation =>
-                        //    animation
-                        //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
-                        //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
-
-                    textGeometry.Opacity = 0;
-
-                    if (actualScale is not null)
-                    {
-                        float xi, yi;
-
-                        if (_orientation == AxisOrientation.X)
-                        {
-                            xi = actualScale.ToPixels(i);
-                            yi = yoo;
-                        }
-                        else
-                        {
-                            xi = xoo;
-                            yi = actualScale.ToPixels(i);
-                        }
-
-                        textGeometry.X = xi;
-                        textGeometry.Y = yi;
-                        textGeometry.CompleteTransition(null);
-                    }
-                }
-
-                if (SeparatorsPaint is not null && ShowSeparatorLines)
-                {
-                    var lineGeometry = new TLineGeometry();
-
-                    visualSeparator.Line = lineGeometry;
-
-                    _ = lineGeometry
-                        .TransitionateProperties(
-                            nameof(lineGeometry.X), nameof(lineGeometry.X1),
-                            nameof(lineGeometry.Y), nameof(lineGeometry.Y1),
-                            nameof(lineGeometry.Opacity)
-                        );
-                        //.WithAnimation(animation =>
-                        //    animation
-                        //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
-                        //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
-
-                    lineGeometry.Opacity = 0;
-
-                    if (actualScale is not null)
-                    {
-                        float xi, yi;
-
-                        if (_orientation == AxisOrientation.X)
-                        {
-                            xi = actualScale.ToPixels(i);
-                            yi = yoo;
-                        }
-                        else
-                        {
-                            xi = xoo;
-                            yi = actualScale.ToPixels(i);
-                        }
-
-                        if (_orientation == AxisOrientation.X)
-                        {
-                            lineGeometry.X = xi;
-                            lineGeometry.X1 = xi;
-                            lineGeometry.Y = lyi;
-                            lineGeometry.Y1 = lyj;
-                        }
-                        else
-                        {
-                            lineGeometry.X = lxi;
-                            lineGeometry.X1 = lxj;
-                            lineGeometry.Y = yi;
-                            lineGeometry.Y1 = yi;
-                        }
-
-                        lineGeometry.CompleteTransition(null);
-                    }
-                }
-
-                separators.Add(i, visualSeparator);
+                separators.Add(separatorKey, visualSeparator);
             }
 
-            if (NamePaint is not null && _nameGeometry is not null)
-                NamePaint.AddGeometryToPaintTask(cartesianChart.Canvas, _nameGeometry);
-            if (SeparatorsPaint is not null && ShowSeparatorLines && visualSeparator.Line is not null)
-                SeparatorsPaint.AddGeometryToPaintTask(cartesianChart.Canvas, visualSeparator.Line);
+            #region Initialize shapes
+
+            if (SeparatorsPaint is not null && ShowSeparatorLines && visualSeparator.Separator is null)
+            {
+                InitializeSeparator(visualSeparator, cartesianChart);
+                UpdateSeparator(
+                    visualSeparator.Separator!, xc + sxco, yc + syco, lxi, lxj, lyi, lyj,
+                    UpdateMode.UpdateAndComplete);
+            }
+            if (SubseparatorsPaint is not null && ShowSeparatorLines &&
+                (visualSeparator.Subseparators is null || visualSeparator.Subseparators.Length == 0))
+            {
+                InitializeSubseparators(visualSeparator, cartesianChart);
+                UpdateSubseparators(
+                    visualSeparator.Subseparators!, actualScale, s, xc + sxco, yc + syco, lxi, lxj, lyi, lyj,
+                    UpdateMode.UpdateAndComplete);
+            }
+            if (TicksPaint is not null && visualSeparator.Tick is null)
+            {
+                InitializeTick(visualSeparator, cartesianChart);
+                UpdateTick(visualSeparator.Tick!, _tickLength, xc + txco, yc + tyco, UpdateMode.UpdateAndComplete);
+            }
+            if (SubticksPaint is not null && _subSections > 0 &&
+                (visualSeparator.Subticks is null || visualSeparator.Subticks.Length == 0))
+            {
+                InitializeSubticks(visualSeparator, cartesianChart);
+                UpdateSubticks(visualSeparator.Subticks!, actualScale, s, xc + txco, yc + tyco, UpdateMode.UpdateAndComplete);
+            }
+            if (LabelsPaint is not null && visualSeparator.Label is null)
+            {
+                IntializeLabel(visualSeparator, cartesianChart, size, hasRotation, r);
+                UpdateLabel(
+                    visualSeparator.Label!, xc, yc, TryGetLabelOrLogError(labeler, i - 1d + 1d), hasRotation, r,
+                    UpdateMode.UpdateAndComplete);
+            }
+
+            #endregion
+
+            if (SeparatorsPaint is not null && visualSeparator.Separator is not null)
+                    {
+                if (ShowSeparatorLines)
+                    SeparatorsPaint.AddGeometryToPaintTask(cartesianChart.Canvas, visualSeparator.Separator);
+                        else
+                    SeparatorsPaint.RemoveGeometryFromPainTask(cartesianChart.Canvas, visualSeparator.Separator);
+                        }
+
+            if (SubseparatorsPaint is not null && visualSeparator.Subseparators is not null)
+                if (ShowSeparatorLines)
+                    foreach (var subtick in visualSeparator.Subseparators)
+                        SubseparatorsPaint.AddGeometryToPaintTask(cartesianChart.Canvas, subtick);
+                else
+                    foreach (var subtick in visualSeparator.Subseparators)
+                        SubseparatorsPaint.RemoveGeometryFromPainTask(cartesianChart.Canvas, subtick);
+
             if (LabelsPaint is not null && visualSeparator.Label is not null)
                 LabelsPaint.AddGeometryToPaintTask(cartesianChart.Canvas, visualSeparator.Label);
+            if (TicksPaint is not null && visualSeparator.Tick is not null)
+                TicksPaint.AddGeometryToPaintTask(cartesianChart.Canvas, visualSeparator.Tick);
+            if (SubticksPaint is not null && visualSeparator.Subticks is not null)
+                foreach (var subtick in visualSeparator.Subticks)
+                    SubticksPaint.AddGeometryToPaintTask(cartesianChart.Canvas, subtick);
 
+            if (visualSeparator.Separator is not null)
+                UpdateSeparator(visualSeparator.Separator, x + sxco, y + syco, lxi, lxj, lyi, lyj, UpdateMode.Update);
+            if (visualSeparator.Subseparators is not null)
+                UpdateSubseparators(visualSeparator.Subseparators, scale, s, x + sxco, y + tyco, lxi, lxj, lyi, lyj, UpdateMode.Update);
+            if (visualSeparator.Tick is not null)
+                UpdateTick(visualSeparator.Tick, _tickLength, x + txco, y + tyco, UpdateMode.Update);
+            if (visualSeparator.Subticks is not null)
+                UpdateSubticks(visualSeparator.Subticks, scale, s, x + txco, y + tyco, UpdateMode.Update);
             if (visualSeparator.Label is not null)
-            {
-                visualSeparator.Label.Text = label;
-                visualSeparator.Label.Padding = _padding;
-                visualSeparator.Label.X = x;
-                visualSeparator.Label.Y = y;
-                if (hasRotation) visualSeparator.Label.RotateTransform = r;
+                UpdateLabel(visualSeparator.Label, x, y + tyco, labelContent, hasRotation, r, UpdateMode.Update);
 
-                visualSeparator.Label.Opacity = 1;
+            if (hasActivePaint) _ = measured.Add(visualSeparator);
 
-                if (!_animatableBounds.HasPreviousState) visualSeparator.Label.CompleteTransition(null);
+#if DEBUG
+            if (_stepCount++ > 10000) throw new Exception("Too many iterations");
+#endif
             }
 
-            if (visualSeparator.Line is not null)
+        foreach (var separatorValueKey in separators.ToArray())
             {
+            var separator = separatorValueKey.Value;
+            if (measured.Contains(separator)) continue;
+
+            float x, y;
                 if (_orientation == AxisOrientation.X)
                 {
-                    visualSeparator.Line.X = x;
-                    visualSeparator.Line.X1 = x;
-                    visualSeparator.Line.Y = lyi;
-                    visualSeparator.Line.Y1 = lyj;
+                x = scale.ToPixels(separator.Value);
+                y = yoo;
                 }
                 else
                 {
-                    visualSeparator.Line.X = lxi;
-                    visualSeparator.Line.X1 = lxj;
-                    visualSeparator.Line.Y = y;
-                    visualSeparator.Line.Y1 = y;
+                x = xoo;
+                y = scale.ToPixels(separator.Value);
                 }
 
-                visualSeparator.Line.Opacity = 1;
+            if (separator.Separator is not null)
+                UpdateSeparator(separator.Separator, x + sxco, y + syco, lxi, lxj, lyi, lyj, UpdateMode.UpdateAndRemove);
+            if (separator.Subseparators is not null)
+                UpdateSubseparators(
+                    separator.Subseparators, scale, s, x + sxco, y + syco, lxi, lxj, lyi, lyj, UpdateMode.UpdateAndRemove);
+            if (separator.Tick is not null)
+                UpdateTick(separator.Tick, _tickLength, x + txco, y + tyco, UpdateMode.UpdateAndRemove);
+            if (separator.Subticks is not null)
+                UpdateSubticks(separator.Subticks, scale, s, x + txco, y + tyco, UpdateMode.UpdateAndRemove);
+            if (separator.Label is not null)
+                UpdateLabel(
+                    separator.Label, x, y + tyco, TryGetLabelOrLogError(labeler, separator.Value - 1d + 1d), hasRotation, r,
+                    UpdateMode.UpdateAndRemove);
 
-                if (!_animatableBounds.HasPreviousState) visualSeparator.Line.CompleteTransition(null);
+            _ = separators.Remove(separatorValueKey.Key);
+        }
             }
 
-            if (visualSeparator.Label is not null || visualSeparator.Line is not null) _ = measured.Add(visualSeparator);
-        }
-
-        foreach (var separator in separators.ToArray())
+    /// <inheritdoc cref="ICartesianAxis{TDrawingContext}.InvalidateCrosshair(Chart{TDrawingContext}, LvcPoint)"/>
+    public void InvalidateCrosshair(Chart<TDrawingContext> chart, LvcPoint pointerPosition)
         {
-            if (measured.Contains(separator.Value)) continue;
+        if (CrosshairPaint is null || chart is not CartesianChart<TDrawingContext> cartesianChart) return;
 
-            SoftDeleteSeparator(cartesianChart, separator.Value, scale);
-            _ = separators.Remove(separator.Key);
+        var scale = this.GetNextScaler(cartesianChart);
+        var controlSize = cartesianChart.ControlSize;
+        var drawLocation = cartesianChart.DrawMarginLocation;
+        var drawMarginSize = cartesianChart.DrawMarginSize;
+        double labelValue;
+
+        var lyi = drawLocation.Y;
+        var lyj = drawLocation.Y + drawMarginSize.Height;
+        var lxi = drawLocation.X;
+        var lxj = drawLocation.X + drawMarginSize.Width;
+
+        float xoo = 0f, yoo = 0f;
+
+        if (_orientation == AxisOrientation.X)
+        {
+            yoo = _position == AxisPosition.Start
+                 ? controlSize.Height - _yo
+                 : _yo;
         }
+        else
+        {
+            xoo = _position == AxisPosition.Start
+                ? _xo
+                : controlSize.Width - _xo;
+        }
+
+        float x, y;
+        if (_orientation == AxisOrientation.X)
+        {
+            float crosshairX;
+            if (CrosshairSnapEnabled)
+            {
+                var axisIndex = Array.IndexOf(cartesianChart.XAxes, this);
+                var closestPoint = FindClosestPoint(
+                    pointerPosition, cartesianChart, cartesianChart.Series.Where(s => s.ScalesXAt == axisIndex));
+
+                crosshairX = scale.ToPixels(closestPoint?.SecondaryValue ?? pointerPosition.X);
+                labelValue = closestPoint?.SecondaryValue ?? scale.ToChartValues(pointerPosition.X);
+            }
+            else
+            {
+                crosshairX = pointerPosition.X;
+                labelValue = scale.ToChartValues(pointerPosition.X);
+            }
+
+            x = crosshairX;
+            y = yoo;
+        }
+        else
+        {
+            float crosshairY;
+            if (CrosshairSnapEnabled)
+            {
+                var axisIndex = Array.IndexOf(cartesianChart.YAxes, this);
+                var closestPoint = FindClosestPoint(
+                    pointerPosition, cartesianChart, cartesianChart.Series.Where(s => s.ScalesYAt == axisIndex));
+
+                crosshairY = scale.ToPixels(closestPoint?.PrimaryValue ?? pointerPosition.Y);
+                labelValue = closestPoint?.PrimaryValue ?? scale.ToChartValues(pointerPosition.Y);
+            }
+            else
+            {
+                crosshairY = pointerPosition.Y;
+                labelValue = scale.ToChartValues(pointerPosition.Y);
+            }
+
+            x = xoo;
+            y = crosshairY;
+        }
+
+        if (CrosshairPaint.ZIndex == 0) CrosshairPaint.ZIndex = 1050;
+        CrosshairPaint.SetClipRectangle(cartesianChart.Canvas, new LvcRectangle(drawLocation, drawMarginSize));
+        cartesianChart.Canvas.AddDrawableTask(CrosshairPaint);
+
+        if (_crosshairLine is null)
+        {
+            _crosshairLine = new TLineGeometry();
+            UpdateSeparator(_crosshairLine, x, y, lxi, lxj, lyi, lyj, UpdateMode.UpdateAndComplete);
+        }
+        CrosshairPaint.AddGeometryToPaintTask(cartesianChart.Canvas, _crosshairLine);
+
+        if (CrosshairLabelsPaint is not null)
+        {
+            if (CrosshairLabelsPaint.ZIndex == 0) CrosshairLabelsPaint.ZIndex = 1050;
+            if (Orientation == AxisOrientation.X)
+            {
+                CrosshairLabelsPaint.SetClipRectangle(
+                    cartesianChart.Canvas,
+                    new LvcRectangle(new LvcPoint(drawLocation.X, 0),
+                    new LvcSize(drawMarginSize.Width, controlSize.Height)));
+            }
+            else
+            {
+                CrosshairLabelsPaint.SetClipRectangle(
+                    cartesianChart.Canvas,
+                    new LvcRectangle(new LvcPoint(0, drawLocation.Y),
+                    new LvcSize(controlSize.Width, drawMarginSize.Height)));
+            }
+            cartesianChart.Canvas.AddDrawableTask(CrosshairLabelsPaint);
+
+            _crosshairLabel ??= new TTextGeometry();
+            var labeler = Labeler;
+            if (Labels is not null)
+            {
+                labeler = Labelers.BuildNamedLabeler(Labels).Function;
+            }
+
+            _crosshairLabel.Text = TryGetLabelOrLogError(labeler, labelValue);
+            _crosshairLabel.TextSize = (float)_textSize;
+            _crosshairLabel.Background = CrosshairLabelsBackground ?? LvcColor.Empty;
+            _crosshairLabel.Padding = CrosshairPadding ?? _padding;
+            _crosshairLabel.X = x;
+            _crosshairLabel.Y = y;
+
+            var r = (float)_labelsRotation;
+            var hasRotation = Math.Abs(r) > 0.01f;
+            if (hasRotation) _crosshairLabel.RotateTransform = r;
+            CrosshairLabelsPaint.AddGeometryToPaintTask(cartesianChart.Canvas, _crosshairLabel);
+        }
+
+        UpdateSeparator(_crosshairLine, x, y, lxi, lxj, lyi, lyj, UpdateMode.Update);
+
+        chart.Canvas.Invalidate();
+    }
+
+    private static ChartPoint? FindClosestPoint(
+        LvcPoint pointerPosition,
+        CartesianChart<TDrawingContext> cartesianChart,
+        IEnumerable<ICartesianSeries<TDrawingContext>> allSeries)
+    {
+        ChartPoint? closestPoint = null;
+        foreach (var series in allSeries)
+        {
+            var hitpoints = series.FindHitPoints(cartesianChart, pointerPosition, allSeries.GetTooltipFindingStrategy());
+            var hitpoint = hitpoints.FirstOrDefault();
+            if (hitpoint == null) continue;
+
+            if (closestPoint is null ||
+                hitpoint.DistanceTo(pointerPosition) < closestPoint.DistanceTo(pointerPosition))
+            {
+                closestPoint = hitpoint;
+            }
+        }
+
+        return closestPoint;
     }
 
     /// <inheritdoc cref="IPlane{TDrawingContext}.GetNameLabelSize(Chart{TDrawingContext})"/>
@@ -533,8 +794,10 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
         var textGeometry = new TTextGeometry
         {
             Text = Name ?? string.Empty,
-            TextSize = (float)NameTextSize,
-            RotateTransform = Orientation == AxisOrientation.X ? 0 : -90,
+            TextSize = (float)_nameTextSize,
+            RotateTransform = Orientation == AxisOrientation.X
+                ? 0
+                : InLineNamePlacement ? 0 : -90,
             Padding = NamePadding
         };
 
@@ -547,7 +810,7 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
         if (_dataBounds is null) throw new Exception("DataBounds not found");
         if (LabelsPaint is null) return new LvcSize(0f, 0f);
 
-        var ts = (float)TextSize;
+        var ts = (float)_textSize;
         var labeler = Labeler;
 
         if (Labels is not null)
@@ -557,15 +820,13 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
         }
 
         var axisTick = this.GetTick(chart.DrawMarginSize);
-
         var s = axisTick.Value;
-
-        if (s == 0) s = 1;
-        if (s < _minStep) s = _minStep;
-        if (_forceStepToMin) s = _minStep;
 
         var max = MaxLimit is null ? _visibleDataBounds.Max : MaxLimit.Value;
         var min = MinLimit is null ? _visibleDataBounds.Min : MinLimit.Value;
+
+        if (s < _minStep) s = _minStep;
+        if (_forceStepToMin) s = _minStep;
 
         var start = Math.Truncate(min / s) * s;
 
@@ -577,7 +838,7 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
         {
             var textGeometry = new TTextGeometry
             {
-                Text = labeler(i),
+                Text = TryGetLabelOrLogError(labeler, i),
                 TextSize = ts,
                 RotateTransform = r,
                 Padding = _padding
@@ -585,6 +846,10 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
             var m = textGeometry.Measure(LabelsPaint);
             if (m.Width > w) w = m.Width;
             if (m.Height > h) h = m.Height;
+
+#if DEBUG
+            if (_stepCount++ > 10000) throw new Exception("Too many iterations");
+#endif
         }
 
         return new LvcSize(w, h);
@@ -596,7 +861,7 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
         _orientation = orientation;
         _dataBounds = new Bounds();
         _visibleDataBounds = new Bounds();
-        if (_animatableBounds is null) _animatableBounds = new();
+        _animatableBounds ??= new();
         Initialized?.Invoke(this);
     }
 
@@ -627,101 +892,13 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
     }
 
     /// <summary>
-    /// Called when a property changes.
-    /// </summary>
-    /// <param name="propertyName">Name of the property.</param>
-    /// <returns></returns>
-    protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-    {
-        if (!((ICartesianAxis)this).IsNotifyingChanges) return;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
-
-    /// <summary>
-    /// Softly deletes the separator.
-    /// </summary>
-    /// <param name="chart">The chart.</param>
-    /// <param name="separator">The separator.</param>
-    /// <param name="scaler">The scaler.</param>
-    /// <returns></returns>
-    protected virtual void SoftDeleteSeparator(
-        Chart<TDrawingContext> chart,
-        AxisVisualSeprator<TDrawingContext> separator,
-        Scaler scaler)
-    {
-        var controlSize = chart.ControlSize;
-        var drawLocation = chart.DrawMarginLocation;
-        var drawMarginSize = chart.DrawMarginSize;
-
-        var lyi = drawLocation.Y;
-        var lyj = drawLocation.Y + drawMarginSize.Height;
-        var lxi = drawLocation.X;
-        var lxj = drawLocation.X + drawMarginSize.Width;
-
-        float xoo = 0f, yoo = 0f;
-
-        if (_orientation == AxisOrientation.X)
-        {
-            yoo = _position == AxisPosition.Start
-                 ? controlSize.Height - _yo
-                 : _yo;
-        }
-        else
-        {
-            xoo = _position == AxisPosition.Start
-                ? _xo
-                : controlSize.Width - _xo;
-        }
-
-        float x, y;
-        if (_orientation == AxisOrientation.X)
-        {
-            x = scaler.ToPixels(separator.Value);
-            y = yoo;
-        }
-        else
-        {
-            x = xoo;
-            y = scaler.ToPixels(separator.Value);
-        }
-
-        if (separator.Line is not null)
-        {
-            if (_orientation == AxisOrientation.X)
-            {
-                separator.Line.X = x;
-                separator.Line.X1 = x;
-                separator.Line.Y = lyi;
-                separator.Line.Y1 = lyj;
-            }
-            else
-            {
-                separator.Line.X = lxi;
-                separator.Line.X1 = lxj;
-                separator.Line.Y = y;
-                separator.Line.Y1 = y;
-            }
-
-            separator.Line.Opacity = 0;
-            separator.Line.RemoveOnCompleted = true;
-        }
-
-        if (separator.Label is not null)
-        {
-            separator.Label.X = x;
-            separator.Label.Y = y;
-            separator.Label.Opacity = 0;
-            separator.Label.RemoveOnCompleted = true;
-        }
-    }
-
-    /// <summary>
     /// Called when [paint changed].
     /// </summary>
     /// <param name="propertyName">Name of the property.</param>
     /// <returns></returns>
     protected override void OnPaintChanged(string? propertyName)
     {
+        base.OnPaintChanged(propertyName);
         OnPropertyChanged(propertyName);
     }
 
@@ -729,8 +906,496 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
     /// Gets the paint tasks.
     /// </summary>
     /// <returns></returns>
-    protected override IPaint<TDrawingContext>?[] GetPaintTasks()
+    internal override IPaint<TDrawingContext>?[] GetPaintTasks()
     {
-        return new[] { _separatorsPaint, _labelsPaint, _namePaint };
+        return new[] { _separatorsPaint, _labelsPaint, _namePaint, _zeroPaint, _ticksPaint, _subticksPaint, _subseparatorsPaint };
+    }
+
+    private LvcSize GetPossibleMaxLabelSize(Chart<TDrawingContext> chart)
+    {
+        if (LabelsPaint is null) return new LvcSize();
+
+        var labeler = Labeler;
+
+        if (Labels is not null)
+        {
+            labeler = Labelers.BuildNamedLabeler(Labels).Function;
+            _minStep = 1;
+        }
+
+        var axisTick = this.GetTick(chart.DrawMarginSize);
+        var s = axisTick.Value;
+
+        var max = MaxLimit is null ? _visibleDataBounds.Max : MaxLimit.Value;
+        var min = MinLimit is null ? _visibleDataBounds.Min : MinLimit.Value;
+
+        if (s == 0) s = 1;
+        if (s < _minStep) s = _minStep;
+        if (_forceStepToMin) s = _minStep;
+
+        var maxLabelSize = new LvcSize();
+
+        if (max - min == 0) return maxLabelSize;
+
+        for (var i = min; i <= max; i += s)
+        {
+            var textGeometry = new TTextGeometry
+            {
+                Text = labeler(i),
+                TextSize = (float)_textSize,
+                RotateTransform = (float)LabelsRotation,
+                Padding = _padding
+            };
+
+            var m = textGeometry.Measure(LabelsPaint);
+
+            maxLabelSize = new LvcSize(
+                maxLabelSize.Width > m.Width ? maxLabelSize.Width : m.Width,
+                maxLabelSize.Height > m.Height ? maxLabelSize.Height : m.Height);
+
+#if DEBUG
+            if (_stepCount++ > 10000) throw new Exception("Too many iterations");
+#endif
+        }
+
+        return maxLabelSize;
+    }
+
+    private void DrawName(
+        CartesianChart<TDrawingContext> cartesianChart,
+        float size,
+        float lxi,
+        float lxj,
+        float lyi,
+        float lyj)
+    {
+        var isNew = false;
+
+        if (_nameGeometry is null)
+        {
+            _nameGeometry = new TTextGeometry
+            {
+                TextSize = size,
+                HorizontalAlign = Align.Middle,
+                VerticalAlign = Align.Middle
+            };
+
+            _ = _nameGeometry
+                 .TransitionateProperties(
+                         nameof(_nameGeometry.X),
+                         nameof(_nameGeometry.Y));
+                 //.WithAnimation(animation =>
+                 //    animation
+                 //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+                 //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
+
+            isNew = true;
+        }
+
+        _nameGeometry.Padding = NamePadding;
+        _nameGeometry.Text = Name ?? string.Empty;
+        _nameGeometry.TextSize = (float)_nameTextSize;
+
+        if (_orientation == AxisOrientation.X)
+        {
+            if (InLineNamePlacement)
+            {
+                _nameGeometry.X = _nameDesiredSize.X + _nameDesiredSize.Width * 0.5f;
+                _nameGeometry.Y = _nameDesiredSize.Y + _nameDesiredSize.Height * 0.5f;
+            }
+            else
+            {
+                _nameGeometry.X = (lxi + lxj) * 0.5f;
+                _nameGeometry.Y = _nameDesiredSize.Y + _nameDesiredSize.Height * 0.5f;
+            }
+        }
+        else
+        {
+            if (InLineNamePlacement)
+            {
+                _nameGeometry.X = _nameDesiredSize.X + _nameDesiredSize.Width * 0.5f;
+                _nameGeometry.Y = _nameDesiredSize.Height * 0.5f;
+            }
+            else
+            {
+                _nameGeometry.RotateTransform = -90;
+                _nameGeometry.X = _nameDesiredSize.X + _nameDesiredSize.Width * 0.5f;
+                _nameGeometry.Y = (lyi + lyj) * 0.5f;
+            }
+        }
+
+        if (isNew) _nameGeometry.CompleteTransition(null);
+    }
+
+    private void InitializeSeparator(
+        AxisVisualSeprator<TDrawingContext> visualSeparator, CartesianChart<TDrawingContext> cartesianChart, TLineGeometry? separatorGeometry = null)
+    {
+        TLineGeometry lineGeometry;
+
+        if (separatorGeometry is not null)
+        {
+            lineGeometry = separatorGeometry;
+        }
+        else
+        {
+            lineGeometry = new TLineGeometry();
+            visualSeparator.Separator = lineGeometry;
+        }
+
+        visualSeparator.Separator = lineGeometry;
+        InitializeLine(lineGeometry, cartesianChart);
+    }
+
+    private void InitializeSubseparators(
+        AxisVisualSeprator<TDrawingContext> visualSeparator, CartesianChart<TDrawingContext> cartesianChart)
+    {
+        visualSeparator.Subseparators = new TLineGeometry[_subSections];
+
+        for (var j = 0; j < _subSections; j++)
+        {
+            var subSeparator = new TLineGeometry();
+            visualSeparator.Subseparators[j] = subSeparator;
+            InitializeTick(visualSeparator, cartesianChart, subSeparator);
+        }
+    }
+
+    private void InitializeLine(ILineGeometry<TDrawingContext> lineGeometry, CartesianChart<TDrawingContext> cartesianChart)
+    {
+        _ = lineGeometry
+            .TransitionateProperties(
+                nameof(lineGeometry.X), nameof(lineGeometry.X1),
+                nameof(lineGeometry.Y), nameof(lineGeometry.Y1),
+                nameof(lineGeometry.Opacity));
+            //.WithAnimation(animation =>
+            //    animation
+            //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+            //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
+    }
+
+    private void InitializeTick(
+        AxisVisualSeprator<TDrawingContext> visualSeparator, CartesianChart<TDrawingContext> cartesianChart, TLineGeometry? subTickGeometry = null)
+    {
+        TLineGeometry tickGeometry;
+
+        if (subTickGeometry is not null)
+        {
+            tickGeometry = subTickGeometry;
+        }
+        else
+        {
+            tickGeometry = new TLineGeometry();
+            visualSeparator.Tick = tickGeometry;
+        }
+
+        _ = tickGeometry
+            .TransitionateProperties(
+                nameof(tickGeometry.X), nameof(tickGeometry.X1),
+                nameof(tickGeometry.Y), nameof(tickGeometry.Y1),
+                nameof(tickGeometry.Opacity));
+            //.WithAnimation(animation =>
+            //    animation
+            //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+            //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
+    }
+
+    private void InitializeSubticks(
+        AxisVisualSeprator<TDrawingContext> visualSeparator, CartesianChart<TDrawingContext> cartesianChart)
+    {
+        visualSeparator.Subticks = new TLineGeometry[_subSections];
+
+        for (var j = 0; j < _subSections; j++)
+        {
+            var subTick = new TLineGeometry();
+            visualSeparator.Subticks[j] = subTick;
+            InitializeTick(visualSeparator, cartesianChart, subTick);
+        }
+    }
+
+    private void IntializeLabel(
+        AxisVisualSeprator<TDrawingContext> visualSeparator,
+        CartesianChart<TDrawingContext> cartesianChart,
+        float size,
+        bool hasRotation,
+        float r)
+    {
+        var textGeometry = new TTextGeometry { TextSize = size };
+        visualSeparator.Label = textGeometry;
+        if (hasRotation) textGeometry.RotateTransform = r;
+
+        _ = textGeometry
+            .TransitionateProperties(
+                nameof(textGeometry.X),
+                nameof(textGeometry.Y),
+                nameof(textGeometry.Opacity));
+            //.WithAnimation(animation =>
+            //    animation
+            //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+            //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
+    }
+
+    private void UpdateSeparator(
+        ILineGeometry<TDrawingContext> line,
+        float x,
+        float y,
+        float lxi,
+        float lxj,
+        float lyi,
+        float lyj,
+        UpdateMode mode)
+    {
+        if (_orientation == AxisOrientation.X)
+        {
+            line.X = x;
+            line.X1 = x;
+            line.Y = lyi;
+            line.Y1 = lyj;
+        }
+        else
+        {
+            line.X = lxi;
+            line.X1 = lxj;
+            line.Y = y;
+            line.Y1 = y;
+        }
+
+        SetUpdateMode(line, mode);
+    }
+
+    private void UpdateTick(
+        ILineGeometry<TDrawingContext> tick, float length, float x, float y, UpdateMode mode)
+    {
+        if (_orientation == AxisOrientation.X)
+        {
+            var lyi = y + _size.Height * 0.5f;
+            var lyj = y - _size.Height * 0.5f;
+            tick.X = x;
+            tick.X1 = x;
+            tick.Y = _position == AxisPosition.Start ? lyj : lyi - length;
+            tick.Y1 = _position == AxisPosition.Start ? lyj + length : lyi;
+        }
+        else
+        {
+            var lxi = x + _size.Width * 0.5f;
+            var lxj = x - _size.Width * 0.5f;
+            tick.X = _position == AxisPosition.Start ? lxi : lxj + length;
+            tick.X1 = _position == AxisPosition.Start ? lxi - length : lxj;
+            tick.Y = y;
+            tick.Y1 = y;
+        }
+
+        SetUpdateMode(tick, mode);
+    }
+
+    private void UpdateSubseparators(
+        ILineGeometry<TDrawingContext>[] subseparators, Scaler scale, double s, float x, float y, float lxi, float lxj, float lyi, float lyj, UpdateMode mode)
+    {
+        for (var j = 0; j < subseparators.Length; j++)
+        {
+            var subseparator = subseparators[j];
+            var kl = (j + 1) / (double)(_subSections + 1);
+
+            float xs = 0f, ys = 0f;
+            if (_orientation == AxisOrientation.X)
+            {
+                xs = scale.MeasureInPixels(s * kl);
+            }
+            else
+            {
+                ys = scale.MeasureInPixels(s * kl);
+            }
+
+            UpdateSeparator(subseparator, x + xs, y + ys, lxi, lxj, lyi, lyj, mode);
+        }
+    }
+
+    private void UpdateSubticks(
+        ILineGeometry<TDrawingContext>[] subticks, Scaler scale, double s, float x, float y, UpdateMode mode)
+    {
+        for (var j = 0; j < subticks.Length; j++)
+        {
+            var subtick = subticks[j];
+
+            var k = 0.5f;
+            var kl = (j + 1) / (double)(_subSections + 1);
+            if (Math.Abs(kl - 0.5f) < 0.01) k += 0.25f;
+
+            float xs = 0f, ys = 0f;
+            if (_orientation == AxisOrientation.X)
+            {
+                xs = scale.MeasureInPixels(s * kl);
+            }
+            else
+            {
+                ys = scale.MeasureInPixels(s * kl);
+            }
+
+            UpdateTick(subtick, _tickLength * k, x + xs, y + ys, mode);
+        }
+    }
+
+    private void UpdateLabel(
+        ILabelGeometry<TDrawingContext> label,
+        float x,
+        float y,
+        string text,
+        bool hasRotation,
+        float r,
+        UpdateMode mode)
+    {
+        var actualRotatation = r;
+        const double toRadians = Math.PI / 180;
+
+        if (_orientation == AxisOrientation.Y)
+        {
+            actualRotatation %= 180;
+            if (actualRotatation < 0) actualRotatation += 360;
+            if (actualRotatation is > 90 and < 180) actualRotatation += 180;
+            if (actualRotatation is > 180 and < 270) actualRotatation += 180;
+
+            var actualAlignment = _labelsAlignment == null
+              ? (_position == AxisPosition.Start ? Align.End : Align.Start)
+              : _labelsAlignment.Value;
+
+            if (actualAlignment == Align.Start)
+            {
+                if (hasRotation && _labelsPaint is not null)
+                {
+                    var notRotatedSize =
+                        new TTextGeometry { TextSize = (float)_textSize, Padding = _padding, Text = text }
+                        .Measure(_labelsPaint);
+
+                    var rhx = Math.Cos((90 - actualRotatation) * toRadians) * notRotatedSize.Height;
+                    x += (float)Math.Abs(rhx * 0.5f);
+                }
+
+                x -= _labelsDesiredSize.Width * 0.5f;
+                label.HorizontalAlign = Align.Start;
+            }
+            else
+            {
+                if (hasRotation && _labelsPaint is not null)
+                {
+                    var notRotatedSize =
+                        new TTextGeometry { TextSize = (float)_textSize, Padding = _padding, Text = text }
+                        .Measure(_labelsPaint);
+
+                    var rhx = Math.Cos((90 - actualRotatation) * toRadians) * notRotatedSize.Height;
+                    x -= (float)Math.Abs(rhx * 0.5f);
+                }
+
+                x += _labelsDesiredSize.Width * 0.5f;
+                label.HorizontalAlign = Align.End;
+            }
+        }
+
+        if (_orientation == AxisOrientation.X)
+        {
+            actualRotatation %= 180;
+            if (actualRotatation < 0) actualRotatation += 180;
+            if (actualRotatation >= 90) actualRotatation -= 180;
+
+            var actualAlignment = _labelsAlignment == null
+              ? (_position == AxisPosition.Start ? Align.Start : Align.End)
+              : _labelsAlignment.Value;
+
+            if (actualAlignment == Align.Start)
+            {
+                if (hasRotation && _labelsPaint is not null)
+                {
+                    var notRotatedSize =
+                        new TTextGeometry { TextSize = (float)_textSize, Padding = _padding, Text = text }
+                        .Measure(_labelsPaint);
+
+                    var rhx = Math.Sin((90 - actualRotatation) * toRadians) * notRotatedSize.Height;
+                    y += (float)Math.Abs(rhx * 0.5f);
+                }
+
+                if (hasRotation)
+                {
+                    y -= _labelsDesiredSize.Height * 0.5f;
+                    label.HorizontalAlign = actualRotatation < 0
+                        ? Align.End
+                        : Align.Start;
+                }
+                else
+                {
+                    label.HorizontalAlign = Align.Middle;
+                }
+            }
+            else
+            {
+                if (hasRotation && _labelsPaint is not null)
+                {
+                    var notRotatedSize =
+                        new TTextGeometry { TextSize = (float)_textSize, Padding = _padding, Text = text }
+                        .Measure(_labelsPaint);
+
+                    var rhx = Math.Sin((90 - actualRotatation) * toRadians) * notRotatedSize.Height;
+                    y -= (float)Math.Abs(rhx * 0.5f);
+                }
+
+                if (hasRotation)
+                {
+                    y += _labelsDesiredSize.Height * 0.5f;
+                    label.HorizontalAlign = actualRotatation < 0
+                        ? Align.Start
+                        : Align.End;
+                }
+                else
+                {
+                    label.HorizontalAlign = Align.Middle;
+                }
+            }
+        }
+
+        label.Text = text;
+        label.Padding = _padding;
+        label.X = x;
+        label.Y = y;
+
+        if (hasRotation) label.RotateTransform = actualRotatation;
+
+        SetUpdateMode(label, mode);
+    }
+
+    private void SetUpdateMode(IGeometry<TDrawingContext> geometry, UpdateMode mode)
+    {
+        switch (mode)
+        {
+            case Axis<TDrawingContext, TTextGeometry, TLineGeometry>.UpdateMode.UpdateAndComplete:
+                if (_animatableBounds.HasPreviousState) geometry.Opacity = 0;
+                geometry.CompleteTransition(null);
+                break;
+            case Axis<TDrawingContext, TTextGeometry, TLineGeometry>.UpdateMode.UpdateAndRemove:
+                geometry.Opacity = 0;
+                geometry.RemoveOnCompleted = true;
+                break;
+            case Axis<TDrawingContext, TTextGeometry, TLineGeometry>.UpdateMode.Update:
+            default:
+                geometry.Opacity = 1;
+                break;
+        }
+    }
+
+    private string TryGetLabelOrLogError(Func<double, string> labeler, double value)
+    {
+        try
+        {
+            return labeler(value);
+        }
+        catch (Exception e)
+        {
+#if DEBUG
+            Trace.WriteLine($"[Error] LiveCharts was not able to get a label from axis {_orientation} with value {value}. {e.Message}");
+#endif
+            return string.Empty;
+        }
+    }
+
+    private enum UpdateMode
+    {
+        Update,
+        UpdateAndComplete,
+        UpdateAndRemove
     }
 }

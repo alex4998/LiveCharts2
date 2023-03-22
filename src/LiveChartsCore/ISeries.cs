@@ -33,7 +33,7 @@ namespace LiveChartsCore;
 /// <summary>
 /// Defines a chart series.
 /// </summary>
-public interface ISeries : IStopNPC
+public interface ISeries
 {
     /// <summary>
     /// Gets or sets a series unique identifier, the library handles this id automatically.
@@ -44,6 +44,11 @@ public interface ISeries : IStopNPC
     /// Gets the properties of the series.
     /// </summary>
     SeriesProperties SeriesProperties { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether any paint changed.
+    /// </summary>
+    bool PaintsChanged { get; set; }
 
     /// <summary>
     /// Gets the active pints.
@@ -78,13 +83,22 @@ public interface ISeries : IStopNPC
     bool IsVisible { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether this instance will show up in tooltips when the pointer is over a point.
-    /// defualt value is <c>true</c>.
+    /// Gets or sets a value indicating whether this instance will show up in tool tips when the pointer is over a point.
+    /// default value is <c>true</c>.
     /// </summary>
     /// <value>
-    ///   <c>true</c> if this instance is hoverable; otherwise, <c>false</c>.
+    ///   <c>true</c> if this instance is hover-able; otherwise, <c>false</c>.
     /// </value>
     bool IsHoverable { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether this instance will show up in legends.
+    /// default value is <c>true</c>.
+    /// </summary>
+    /// <value>
+    ///   <c>true</c> if this instance is visible at legends; otherwise, <c>false</c>.
+    /// </value>
+    bool IsVisibleAtLegend { get; set; }
 
     /// <summary>
     /// Gets or sets the data padding, both coordinates (X and Y) from 0 to 1, where 0 is nothing and 1 is the axis tick
@@ -132,7 +146,7 @@ public interface ISeries : IStopNPC
     event Action<ISeries>? VisibilityChanged;
 
     /// <summary>
-    /// Gets the tooltip text for a give chart point.
+    /// Gets the tool tip text for a give chart point.
     /// </summary>
     /// <param name="point">The chart point.</param>
     /// <returns></returns>
@@ -160,7 +174,7 @@ public interface ISeries : IStopNPC
     /// <param name="pointerPosition">the pointer position.</param>
     /// <param name="strategy">the strategy.</param>
     /// <returns></returns>
-    IEnumerable<ChartPoint> FindHoveredPoints(IChart chart, LvcPoint pointerPosition, TooltipFindingStrategy strategy);
+    IEnumerable<ChartPoint> FindHitPoints(IChart chart, LvcPoint pointerPosition, TooltipFindingStrategy strategy);
 
     /// <summary>
     /// Called when the pointer enters a chart point.

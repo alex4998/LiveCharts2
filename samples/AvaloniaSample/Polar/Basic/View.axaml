@@ -6,11 +6,12 @@
   <UserControl.DataContext>
     <vms:ViewModel/>
   </UserControl.DataContext>
-  <Grid>
-    <Grid.RowDefinitions>
-      <RowDefinition Height="*"/>
-    </Grid.RowDefinitions>
-
-    <lvc:PolarChart Series="{Binding Series}"></lvc:PolarChart>
-  </Grid>
+    <Grid>
+        <lvc:PolarChart
+            Series="{Binding Series}"
+            AngleAxes="{Binding AngleAxes}"
+            RadiusAxes="{Binding RadialAxes}"
+            Title="{Binding Title}">
+        </lvc:PolarChart>
+    </Grid>
 </UserControl>

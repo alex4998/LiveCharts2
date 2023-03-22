@@ -62,8 +62,8 @@ public class GeoMap<TDrawingContext>
         _updateThrottler = mapView.DesignerMode
                 ? new ActionThrottler(() => Task.CompletedTask, TimeSpan.FromMilliseconds(50))
                 : new ActionThrottler(UpdateThrottlerUnlocked, TimeSpan.FromMilliseconds(100));
-        _heatPaint = LiveCharts.CurrentSettings.GetProvider<TDrawingContext>().GetSolidColorPaint();
-        _mapFactory = LiveCharts.CurrentSettings.GetProvider<TDrawingContext>().GetDefaultMapFactory();
+        _heatPaint = LiveCharts.DefaultSettings.GetProvider<TDrawingContext>().GetSolidColorPaint();
+        _mapFactory = LiveCharts.DefaultSettings.GetProvider<TDrawingContext>().GetDefaultMapFactory();
 
         PointerDown += Chart_PointerDown;
         PointerMove += Chart_PointerMove;
@@ -188,8 +188,8 @@ public class GeoMap<TDrawingContext>
     {
         if (_activeMap is not null && _activeMap != View.ActiveMap)
         {
-            if (_previousStroke is not null) _previousStroke.ClearGeometriesFromPaintTask(View.Canvas);
-            if (_previousFill is not null) _previousFill.ClearGeometriesFromPaintTask(View.Canvas);
+            _previousStroke?.ClearGeometriesFromPaintTask(View.Canvas);
+            _previousFill?.ClearGeometriesFromPaintTask(View.Canvas);
 
             _previousFill = null;
             _previousStroke = null;

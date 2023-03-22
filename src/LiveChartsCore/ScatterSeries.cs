@@ -75,8 +75,8 @@ public class ScatterSeries<TModel, TVisual, TLabel, TDrawingContext>
     /// </value>
     public double GeometrySize { get; set; } = 24d;
 
-    /// <inheritdoc cref="ChartElement{TDrawingContext}.Measure(Chart{TDrawingContext})"/>
-    public override void Measure(Chart<TDrawingContext> chart)
+    /// <inheritdoc cref="ChartElement{TDrawingContext}.Invalidate(Chart{TDrawingContext})"/>
+    public override void Invalidate(Chart<TDrawingContext> chart)
     {
         var cartesianChart = (CartesianChart<TDrawingContext>)chart;
         var primaryAxis = cartesianChart.YAxes[ScalesYAt];
@@ -108,7 +108,7 @@ public class ScatterSeries<TModel, TVisual, TLabel, TDrawingContext>
         }
 
         var dls = (float)DataLabelsSize;
-        var toDeletePoints = new HashSet<ChartPoint>(everFetched);
+        var pointsCleanup = ChartPointCleanupContext.For(everFetched);
 
         var gs = (float)GeometrySize;
         var hgs = gs / 2f;
@@ -129,7 +129,7 @@ public class ScatterSeries<TModel, TVisual, TLabel, TDrawingContext>
             var x = xScale.ToPixels(point.SecondaryValue);
             var y = yScale.ToPixels(point.PrimaryValue);
 
-            if (point.IsNull)
+            if (point.IsEmpty)
             {
                 if (visual is not null)
                 {
@@ -166,8 +166,8 @@ public class ScatterSeries<TModel, TVisual, TLabel, TDrawingContext>
                 _ = everFetched.Add(point);
             }
 
-            if (Fill is not null) Fill.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
-            if (Stroke is not null) Stroke.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
+            Fill?.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
+            Stroke?.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
 
             var sizedGeometry = visual;
 
@@ -178,9 +178,11 @@ public class ScatterSeries<TModel, TVisual, TLabel, TDrawingContext>
 
             sizedGeometry.RemoveOnCompleted = false;
 
-            point.Context.HoverArea = new RectangleHoverArea(x - uwx * 0.5f, y - uwy * 0.5f, uwx, uwy);
+            if (point.Context.HoverArea is not RectangleHoverArea ha)
+                point.Context.HoverArea = ha = new RectangleHoverArea();
+            _ = ha.SetDimensions(x - uwx * 0.5f, y - uwy * 0.5f, uwx, uwy);
 
-            _ = toDeletePoints.Remove(point);
+            pointsCleanup.Clean(point);
 
             if (DataLabelsPaint is not null)
             {
@@ -216,124 +218,31 @@ public class ScatterSeries<TModel, TVisual, TLabel, TDrawingContext>
             OnPointMeasured(point);
         }
 
-        foreach (var point in toDeletePoints)
-        {
-            if (point.Context.Chart != cartesianChart.View) continue;
-            SoftDeleteOrDisposePoint(point, yScale, xScale);
-            _ = everFetched.Remove(point);
-        }
+        pointsCleanup.CollectPoints(everFetched, cartesianChart.View, yScale, xScale, SoftDeleteOrDisposePoint);
     }
 
-    /// <inheritdoc cref="CartesianSeries{TModel, TVisual, TLabel, TDrawingContext}.GetBounds(CartesianChart{TDrawingContext}, ICartesianAxis, ICartesianAxis)"/>
-    public override SeriesBounds GetBounds(
-        CartesianChart<TDrawingContext> chart, ICartesianAxis secondaryAxis, ICartesianAxis primaryAxis)
+    /// <inheritdoc cref="ChartElement{TDrawingContext}.Invalidate(Chart{TDrawingContext})"/>
+    public override SeriesBounds GetBounds(CartesianChart<TDrawingContext> chart, ICartesianAxis secondaryAxis, ICartesianAxis primaryAxis)
     {
-        var baseSeriesBounds = base.GetBounds(chart, secondaryAxis, primaryAxis);
-
-        if (baseSeriesBounds.HasData) return baseSeriesBounds;
-        var baseBounds = baseSeriesBounds.Bounds;
-
-        _weightBounds = baseBounds.TertiaryBounds;
-
-        var tickPrimary = primaryAxis.GetTick(chart.ControlSize, baseBounds.VisiblePrimaryBounds);
-        var tickSecondary = secondaryAxis.GetTick(chart.ControlSize, baseBounds.VisibleSecondaryBounds);
-
-        var ts = tickSecondary.Value * DataPadding.X;
-        var tp = tickPrimary.Value * DataPadding.Y;
-
-        if (baseBounds.VisibleSecondaryBounds.Delta == 0)
-        {
-            var ms = baseBounds.VisibleSecondaryBounds.Min == 0 ? 1 : baseBounds.VisibleSecondaryBounds.Min;
-            ts = 0.1 * ms * DataPadding.X;
-        }
-
-        if (baseBounds.VisiblePrimaryBounds.Delta == 0)
-        {
-            var mp = baseBounds.VisiblePrimaryBounds.Min == 0 ? 1 : baseBounds.VisiblePrimaryBounds.Min;
-            tp = 0.1 * mp * DataPadding.Y;
-        }
-
-        return
-            new SeriesBounds(
-                new DimensionalBounds
-                {
-                    SecondaryBounds = new Bounds
-                    {
-                        Max = baseBounds.SecondaryBounds.Max,
-                        Min = baseBounds.SecondaryBounds.Min,
-                        MinDelta = baseBounds.SecondaryBounds.MinDelta,
-                        PaddingMax = ts,
-                        PaddingMin = ts
-                    },
-                    PrimaryBounds = new Bounds
-                    {
-                        Max = baseBounds.PrimaryBounds.Max,
-                        Min = baseBounds.PrimaryBounds.Min,
-                        MinDelta = baseBounds.PrimaryBounds.MinDelta,
-                        PaddingMax = tp,
-                        PaddingMin = tp
-                    },
-                    VisibleSecondaryBounds = new Bounds
-                    {
-                        Max = baseBounds.VisibleSecondaryBounds.Max,
-                        Min = baseBounds.VisibleSecondaryBounds.Min
-                    },
-                    VisiblePrimaryBounds = new Bounds
-                    {
-                        Max = baseBounds.VisiblePrimaryBounds.Max,
-                        Min = baseBounds.VisiblePrimaryBounds.Min
-                    }
-                },
-                false);
+        var seriesBounds = base.GetBounds(chart, secondaryAxis, primaryAxis);
+        _weightBounds = seriesBounds.Bounds.TertiaryBounds;
+        return seriesBounds;
     }
 
-    /// <inheritdoc cref="OnSeriesMiniatureChanged"/>
-    protected override void OnSeriesMiniatureChanged()
+    /// <inheritdoc cref="Series{TModel, TVisual, TLabel, TDrawingContext}.GetMiniatresSketch"/>
+    public override Sketch<TDrawingContext> GetMiniatresSketch()
     {
-        var context = new CanvasSchedule<TDrawingContext>();
-        var w = LegendShapeSize;
-        var sh = 0f;
+        var schedules = new List<PaintSchedule<TDrawingContext>>();
 
-        if (Stroke is not null)
+        if (Fill is not null) schedules.Add(BuildMiniatureSchedule(Fill, new TVisual()));
+        if (Stroke is not null) schedules.Add(BuildMiniatureSchedule(Stroke, new TVisual()));
+
+        return new Sketch<TDrawingContext>()
         {
-            var strokeClone = Stroke.CloneTask();
-            var st = Stroke.StrokeThickness;
-            if (st > MaxSeriesStroke)
-            {
-                st = MaxSeriesStroke;
-                strokeClone.StrokeThickness = MaxSeriesStroke;
-            }
-
-            var visual = new TVisual
-            {
-                X = st + MaxSeriesStroke - st,
-                Y = st + MaxSeriesStroke - st,
-                Height = (float)LegendShapeSize,
-                Width = (float)LegendShapeSize
-            };
-            sh = st;
-            strokeClone.ZIndex = 1;
-            w += 2 * st;
-            context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(strokeClone, visual));
-        }
-
-        if (Fill is not null)
-        {
-            var fillClone = Fill.CloneTask();
-            var visual = new TVisual
-            {
-                X = sh + MaxSeriesStroke - sh,
-                Y = sh + MaxSeriesStroke - sh,
-                Height = (float)LegendShapeSize,
-                Width = (float)LegendShapeSize
-            };
-            context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(fillClone, visual));
-        }
-
-        context.Width = w;
-        context.Height = w;
-
-        CanvasSchedule = context;
+            Height = MiniatureShapeSize,
+            Width = MiniatureShapeSize,
+            PaintSchedules = schedules
+        };
     }
 
     /// <inheritdoc cref="SetDefaultPointTransitions(ChartPoint)"/>

@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System.ComponentModel;
 using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel.Sketches;
 
@@ -28,14 +29,19 @@ namespace LiveChartsCore.Kernel;
 /// <summary>
 /// Defines a visual element in a chart.
 /// </summary>
-public interface IChartElement<TDrawingContext>
+public interface IChartElement<TDrawingContext> : INotifyPropertyChanged
     where TDrawingContext : DrawingContext
 {
     /// <summary>
-    /// Measures and schedule the draw of the element in the user interface.
+    /// Gets or sets the object that contains data about the control.
+    /// </summary>
+    object? Tag { get; set; }
+
+    /// <summary>
+    /// Invalidates the <see cref="IChartElement{TDrawingContext}"/> in the user interface.
     /// </summary>
     /// <param name="chart">The chart.</param>
-    void Measure(Chart<TDrawingContext> chart);
+    void Invalidate(Chart<TDrawingContext> chart);
 
     /// <summary>
     /// Deletes the <see cref="IPaint{TDrawingContext}"/> instances that changed from the user interface.

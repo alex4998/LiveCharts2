@@ -37,23 +37,26 @@ namespace LiveChartsCore;
 /// <typeparam name="TModel">The type of the model.</typeparam>
 /// <typeparam name="TVisual">The type of the visual.</typeparam>
 /// <typeparam name="TLabel">The type of the label.</typeparam>
+/// <typeparam name="TMiniatureGeometry">The type of the miniature geometry, used in tool tips and legends.</typeparam> 
 /// <typeparam name="TDrawingContext">The type of the drawing context.</typeparam>
 /// <seealso cref="CartesianSeries{TModel, TVisual, TLabel, TDrawingContext}" />
 /// <seealso cref="ICartesianSeries{TDrawingContext}" />
 /// <seealso cref="IHeatSeries{TDrawingContext}" />
-public abstract class FinancialSeries<TModel, TVisual, TLabel, TDrawingContext>
+public abstract class FinancialSeries<TModel, TVisual, TLabel, TMiniatureGeometry, TDrawingContext>
     : CartesianSeries<TModel, TVisual, TLabel, TDrawingContext>, IFinancialSeries<TDrawingContext>
         where TVisual : class, IFinancialVisualChartPoint<TDrawingContext>, new()
         where TDrawingContext : DrawingContext
         where TLabel : class, ILabelGeometry<TDrawingContext>, new()
+        where TMiniatureGeometry : ISizedGeometry<TDrawingContext>, new()
 {
     private IPaint<TDrawingContext>? _upStroke = null;
     private IPaint<TDrawingContext>? _upFill = null;
     private IPaint<TDrawingContext>? _downStroke = null;
     private IPaint<TDrawingContext>? _downFill = null;
+    private double _maxBarWidth = 25;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="FinancialSeries{TModel, TVisual, TLabel, TDrawingContext}"/> class.
+    /// Initializes a new instance of the <see cref="FinancialSeries{TModel, TVisual, TLabel, TMiniatureGeometry, TDrawingContext}"/> class.
     /// </summary>
     protected FinancialSeries()
         : base(
@@ -64,7 +67,7 @@ public abstract class FinancialSeries<TModel, TVisual, TLabel, TDrawingContext>
     }
 
     /// <inheritdoc cref="IFinancialSeries{TDrawingContext}.MaxBarWidth"/>
-    public double MaxBarWidth { get; set; } = 25;
+    public double MaxBarWidth { get => _maxBarWidth; set => SetProperty(ref _maxBarWidth, value); }
 
     /// <inheritdoc cref="IFinancialSeries{TDrawingContext}.UpStroke"/>
     public IPaint<TDrawingContext>? UpStroke
@@ -94,8 +97,8 @@ public abstract class FinancialSeries<TModel, TVisual, TLabel, TDrawingContext>
         set => SetPaintProperty(ref _downFill, value);
     }
 
-    /// <inheritdoc cref="ChartElement{TDrawingContext}.Measure(Chart{TDrawingContext})"/>
-    public override void Measure(Chart<TDrawingContext> chart)
+    /// <inheritdoc cref="ChartElement{TDrawingContext}.Invalidate(Chart{TDrawingContext})"/>
+    public override void Invalidate(Chart<TDrawingContext> chart)
     {
         var cartesianChart = (CartesianChart<TDrawingContext>)chart;
         var primaryAxis = cartesianChart.YAxes[ScalesYAt];
@@ -105,8 +108,8 @@ public abstract class FinancialSeries<TModel, TVisual, TLabel, TDrawingContext>
         var drawMarginSize = cartesianChart.DrawMarginSize;
         var secondaryScale = secondaryAxis.GetNextScaler(cartesianChart);
         var primaryScale = primaryAxis.GetNextScaler(cartesianChart);
-        var previousPrimaryScale = primaryAxis.GetActualScalerScaler(cartesianChart);
-        var previousSecondaryScale = secondaryAxis.GetActualScalerScaler(cartesianChart);
+        var previousPrimaryScale = primaryAxis.GetActualScaler(cartesianChart);
+        var previousSecondaryScale = secondaryAxis.GetActualScaler(cartesianChart);
 
         var uw = secondaryScale.MeasureInPixels(secondaryAxis.UnitWidth);
         var puw = previousSecondaryScale is null ? 0 : previousSecondaryScale.MeasureInPixels(secondaryAxis.UnitWidth);
@@ -153,7 +156,7 @@ public abstract class FinancialSeries<TModel, TVisual, TLabel, TDrawingContext>
         }
 
         var dls = (float)DataLabelsSize;
-        var toDeletePoints = new HashSet<ChartPoint>(everFetched);
+        var pointsCleanup = ChartPointCleanupContext.For(everFetched);
 
         foreach (var point in Fetch(cartesianChart))
         {
@@ -166,7 +169,7 @@ public abstract class FinancialSeries<TModel, TVisual, TLabel, TDrawingContext>
             var low = primaryScale.ToPixels(point.QuinaryValue);
             var middle = open;
 
-            if (point.IsNull)
+            if (point.IsEmpty)
             {
                 if (visual is not null)
                 {
@@ -219,17 +222,17 @@ public abstract class FinancialSeries<TModel, TVisual, TLabel, TDrawingContext>
 
             if (open > close)
             {
-                if (UpFill is not null) UpFill.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
-                if (UpStroke is not null) UpStroke.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
-                if (DownFill is not null) DownFill.RemoveGeometryFromPainTask(cartesianChart.Canvas, visual);
-                if (DownStroke is not null) DownStroke.RemoveGeometryFromPainTask(cartesianChart.Canvas, visual);
+                UpFill?.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
+                UpStroke?.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
+                DownFill?.RemoveGeometryFromPainTask(cartesianChart.Canvas, visual);
+                DownStroke?.RemoveGeometryFromPainTask(cartesianChart.Canvas, visual);
             }
             else
             {
-                if (DownFill is not null) DownFill.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
-                if (DownStroke is not null) DownStroke.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
-                if (UpFill is not null) UpFill.RemoveGeometryFromPainTask(cartesianChart.Canvas, visual);
-                if (UpStroke is not null) UpStroke.RemoveGeometryFromPainTask(cartesianChart.Canvas, visual);
+                DownFill?.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
+                DownStroke?.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
+                UpFill?.RemoveGeometryFromPainTask(cartesianChart.Canvas, visual);
+                UpStroke?.RemoveGeometryFromPainTask(cartesianChart.Canvas, visual);
             }
 
             var x = secondary - uwm;
@@ -242,10 +245,11 @@ public abstract class FinancialSeries<TModel, TVisual, TLabel, TDrawingContext>
             visual.Low = low;
             visual.RemoveOnCompleted = false;
 
-            var ha = new RectangleHoverArea().SetDimensions(secondary - uwm, high, uw, Math.Abs(low - high));
-            point.Context.HoverArea = ha;
+            if (point.Context.HoverArea is not RectangleHoverArea ha)
+                point.Context.HoverArea = ha = new RectangleHoverArea();
+            _ = ha.SetDimensions(secondary - uwm, high, uw, Math.Abs(low - high));
 
-            _ = toDeletePoints.Remove(point);
+            pointsCleanup.Clean(point);
 
             if (DataLabelsPaint is not null)
             {
@@ -285,74 +289,91 @@ public abstract class FinancialSeries<TModel, TVisual, TLabel, TDrawingContext>
             OnPointMeasured(point);
         }
 
-        foreach (var point in toDeletePoints)
-        {
-            if (point.Context.Chart != cartesianChart.View) continue;
-            SoftDeleteOrDisposePoint(point, primaryScale, secondaryScale);
-            _ = everFetched.Remove(point);
-        }
+        pointsCleanup.CollectPoints(
+            everFetched, cartesianChart.View, primaryScale, secondaryScale, SoftDeleteOrDisposePoint);
     }
 
     /// <inheritdoc cref="ICartesianSeries{TDrawingContext}.GetBounds(CartesianChart{TDrawingContext}, ICartesianAxis, ICartesianAxis)"/>
     public override SeriesBounds GetBounds(
         CartesianChart<TDrawingContext> chart, ICartesianAxis secondaryAxis, ICartesianAxis primaryAxis)
     {
-        if (DataFactory is null) throw new Exception("A data provider is required");
+        var rawBounds = DataFactory.GetFinancialBounds(chart, this, secondaryAxis, primaryAxis);
+        if (rawBounds.HasData) return rawBounds;
 
-        var baseSeriesBounds = DataFactory.GetFinancialBounds(chart, this, secondaryAxis, primaryAxis);
-        if (baseSeriesBounds.HasData) return baseSeriesBounds;
-        var baseBounds = baseSeriesBounds.Bounds;
+        var rawBaseBounds = rawBounds.Bounds;
 
-        var tickPrimary = primaryAxis.GetTick(chart.ControlSize, baseBounds.VisiblePrimaryBounds);
-        var tickSecondary = secondaryAxis.GetTick(chart.ControlSize, baseBounds.VisibleSecondaryBounds);
+        var tickPrimary = primaryAxis.GetTick(chart.ControlSize, rawBaseBounds.VisiblePrimaryBounds);
+        var tickSecondary = secondaryAxis.GetTick(chart.ControlSize, rawBaseBounds.VisibleSecondaryBounds);
 
         var ts = tickSecondary.Value * DataPadding.X;
         var tp = tickPrimary.Value * DataPadding.Y;
 
-        if (baseBounds.VisibleSecondaryBounds.Delta == 0)
+        // using different methods for both primary and secondary axis seems to be the best solution
+        // if this the following 2 lines needs to be changed again, please ensure that the following test passes:
+        // https://github.com/beto-rodriguez/LiveCharts2/issues/522
+        // https://github.com/beto-rodriguez/LiveCharts2/issues/642
+
+        if (rawBaseBounds.VisibleSecondaryBounds.Delta == 0) ts = secondaryAxis.UnitWidth * DataPadding.X;
+        if (rawBaseBounds.VisiblePrimaryBounds.Delta == 0) tp = rawBaseBounds.VisiblePrimaryBounds.Max * 0.25f;
+
+        var rgs = GetRequestedGeometrySize();
+        var rso = GetRequestedSecondaryOffset();
+        var rpo = GetRequestedPrimaryOffset();
+
+        var dimensionalBounds = new DimensionalBounds
         {
-            var ms = baseBounds.VisibleSecondaryBounds.Min == 0 ? 1 : baseBounds.VisibleSecondaryBounds.Min;
-            ts = 0.1 * ms * DataPadding.X;
+            SecondaryBounds = new Bounds
+            {
+                Max = rawBaseBounds.SecondaryBounds.Max + rso * secondaryAxis.UnitWidth,
+                Min = rawBaseBounds.SecondaryBounds.Min - rso * secondaryAxis.UnitWidth,
+                MinDelta = rawBaseBounds.SecondaryBounds.MinDelta,
+                PaddingMax = ts,
+                PaddingMin = ts,
+                RequestedGeometrySize = rgs
+            },
+            PrimaryBounds = new Bounds
+            {
+                Max = rawBaseBounds.PrimaryBounds.Max + rpo * secondaryAxis.UnitWidth,
+                Min = rawBaseBounds.PrimaryBounds.Min - rpo * secondaryAxis.UnitWidth,
+                MinDelta = rawBaseBounds.PrimaryBounds.MinDelta,
+                PaddingMax = tp,
+                PaddingMin = tp,
+                RequestedGeometrySize = rgs
+            },
+            VisibleSecondaryBounds = new Bounds
+            {
+                Max = rawBaseBounds.VisibleSecondaryBounds.Max + rso * secondaryAxis.UnitWidth,
+                Min = rawBaseBounds.VisibleSecondaryBounds.Min - rso * secondaryAxis.UnitWidth,
+            },
+            VisiblePrimaryBounds = new Bounds
+            {
+                Max = rawBaseBounds.VisiblePrimaryBounds.Max + rpo * secondaryAxis.UnitWidth,
+                Min = rawBaseBounds.VisiblePrimaryBounds.Min - rpo * secondaryAxis.UnitWidth
+            },
+            TertiaryBounds = rawBaseBounds.TertiaryBounds,
+            VisibleTertiaryBounds = rawBaseBounds.VisibleTertiaryBounds
+        };
+
+        if (GetIsInvertedBounds())
+        {
+            var tempSb = dimensionalBounds.SecondaryBounds;
+            var tempPb = dimensionalBounds.PrimaryBounds;
+            var tempVsb = dimensionalBounds.VisibleSecondaryBounds;
+            var tempVpb = dimensionalBounds.VisiblePrimaryBounds;
+
+            dimensionalBounds.SecondaryBounds = tempPb;
+            dimensionalBounds.PrimaryBounds = tempSb;
+            dimensionalBounds.VisibleSecondaryBounds = tempVpb;
+            dimensionalBounds.VisiblePrimaryBounds = tempVsb;
         }
 
-        if (baseBounds.VisiblePrimaryBounds.Delta == 0)
-        {
-            var mp = baseBounds.VisiblePrimaryBounds.Min == 0 ? 1 : baseBounds.VisiblePrimaryBounds.Min;
-            tp = 0.1 * mp * DataPadding.Y;
-        }
+        return new SeriesBounds(dimensionalBounds, false);
+    }
 
-        return
-            new SeriesBounds(
-                new DimensionalBounds
-                {
-                    SecondaryBounds = new Bounds
-                    {
-                        Max = baseBounds.SecondaryBounds.Max + 0.5 * secondaryAxis.UnitWidth,
-                        Min = baseBounds.SecondaryBounds.Min - 0.5 * secondaryAxis.UnitWidth,
-                        MinDelta = baseBounds.SecondaryBounds.MinDelta,
-                        PaddingMax = ts,
-                        PaddingMin = ts
-                    },
-                    PrimaryBounds = new Bounds
-                    {
-                        Max = baseBounds.PrimaryBounds.Max,
-                        Min = baseBounds.PrimaryBounds.Min,
-                        MinDelta = baseBounds.PrimaryBounds.MinDelta,
-                        PaddingMax = tp,
-                        PaddingMin = tp
-                    },
-                    VisibleSecondaryBounds = new Bounds
-                    {
-                        Max = baseBounds.VisibleSecondaryBounds.Max + 0.5 * secondaryAxis.UnitWidth,
-                        Min = baseBounds.VisibleSecondaryBounds.Min - 0.5 * secondaryAxis.UnitWidth
-                    },
-                    VisiblePrimaryBounds = new Bounds
-                    {
-                        Max = baseBounds.VisiblePrimaryBounds.Max,
-                        Min = baseBounds.VisiblePrimaryBounds.Min
-                    }
-                },
-                false);
+    /// <inheritdoc cref="CartesianSeries{TModel, TVisual, TLabel, TDrawingContext}.GetRequestedSecondaryOffset"/>
+    protected override double GetRequestedSecondaryOffset()
+    {
+        return 0.5f;
     }
 
     /// <inheritdoc cref="Series{TModel, TVisual, TLabel, TDrawingContext}.SetDefaultPointTransitions(ChartPoint)"/>
@@ -417,7 +438,7 @@ public abstract class FinancialSeries<TModel, TVisual, TLabel, TDrawingContext>
     /// </summary>
     /// <returns></returns>
     /// <exception cref="NotImplementedException"></exception>
-    protected override IPaint<TDrawingContext>?[] GetPaintTasks()
+    internal override IPaint<TDrawingContext>?[] GetPaintTasks()
     {
         return new[] { _upFill, _upStroke, _downFill, _downStroke, DataLabelsPaint, hoverPaint };
     }
@@ -429,60 +450,31 @@ public abstract class FinancialSeries<TModel, TVisual, TLabel, TDrawingContext>
     /// <returns></returns>
     protected override void OnPaintChanged(string? propertyName)
     {
-        OnSeriesMiniatureChanged();
+        base.OnPaintChanged(propertyName);
         OnPropertyChanged();
     }
 
     /// <inheritdoc cref="IChartSeries{TDrawingContext}.MiniatureEquals(IChartSeries{TDrawingContext})"/>
     public override bool MiniatureEquals(IChartSeries<TDrawingContext> series)
     {
-        return series is FinancialSeries<TModel, TVisual, TLabel, TDrawingContext> financial &&
+        return series is FinancialSeries<TModel, TVisual, TLabel, TMiniatureGeometry, TDrawingContext> financial &&
             Name == series.Name &&
             UpFill == financial.UpFill && UpStroke == financial.UpStroke &&
             DownFill == financial.DownFill && DownStroke == financial.DownStroke;
     }
 
-    /// <summary>
-    /// Called when the paint context changes.
-    /// </summary>
-    protected override void OnSeriesMiniatureChanged()
+    /// <inheritdoc cref="Series{TModel, TVisual, TLabel, TDrawingContext}.GetMiniatresSketch"/>
+    public override Sketch<TDrawingContext> GetMiniatresSketch()
     {
-        var context = new CanvasSchedule<TDrawingContext>();
-        var w = LegendShapeSize;
+        var schedules = new List<PaintSchedule<TDrawingContext>>();
 
-        if (_upStroke is not null)
+        if (UpStroke is not null) schedules.Add(BuildMiniatureSchedule(UpStroke, new TMiniatureGeometry()));
+
+        return new Sketch<TDrawingContext>()
         {
-            var strokeClone = _upStroke.CloneTask();
-            var st = _upStroke.StrokeThickness;
-            if (st > MaxSeriesStroke)
-            {
-                st = MaxSeriesStroke;
-                strokeClone.StrokeThickness = MaxSeriesStroke;
-            }
-
-            var visual = new TVisual
-            {
-                X = st + MaxSeriesStroke - st,
-                Y = st + MaxSeriesStroke - st,
-                Open = 5,
-                Close = (float)LegendShapeSize - 5,
-                Low = (float)LegendShapeSize,
-                Width = (float)LegendShapeSize
-            };
-            strokeClone.ZIndex = 1;
-            context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(strokeClone, visual));
-        }
-
-        //if (Fill is not null)
-        //{
-        //    var fillClone = Fill.CloneTask();
-        //    var visual = new TVisual { X = sh + o, Y = sh + o, Height = (float)LegendShapeSize, Width = (float)LegendShapeSize };
-        //    context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(fillClone, visual));
-        //}
-
-        context.Width = w + MaxSeriesStroke * 2;
-        context.Height = w + MaxSeriesStroke * 2;
-
-        CanvasSchedule = context;
+            Height = MiniatureShapeSize,
+            Width = MiniatureShapeSize,
+            PaintSchedules = schedules
+        };
     }
 }

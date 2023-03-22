@@ -25,6 +25,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Linq;
 using System.Windows.Input;
 using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel;
@@ -33,6 +34,8 @@ using LiveChartsCore.Kernel.Sketches;
 using LiveChartsCore.Measure;
 using LiveChartsCore.Motion;
 using LiveChartsCore.SkiaSharpView.Drawing;
+using LiveChartsCore.SkiaSharpView.SKCharts;
+using LiveChartsCore.VisualElements;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Controls.Xaml;
@@ -41,18 +44,18 @@ using Microsoft.Maui.Graphics;
 using SkiaSharp.Views.Maui;
 
 namespace LiveChartsCore.SkiaSharpView.Maui;
-
+   
 /// <inheritdoc cref="IPieChartView{TDrawingContext}"/>
 [XamlCompilation(XamlCompilationOptions.Compile)]
-public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingContext>, IMauiChart
+public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingContext>
 {
     #region fields
 
-    /// <summary>
-    /// The core
-    /// </summary>
-    protected Chart<SkiaSharpDrawingContext>? core;
-    private CollectionDeepObserver<ISeries> _seriesObserver;
+    private Chart<SkiaSharpDrawingContext>? _core;
+    private readonly CollectionDeepObserver<ISeries> _seriesObserver;
+    private readonly CollectionDeepObserver<ChartElement<SkiaSharpDrawingContext>> _visualsObserver;
+    private IChartLegend<SkiaSharpDrawingContext>? _legend = new SKDefaultLegend();
+    private IChartTooltip<SkiaSharpDrawingContext>? _tooltip = new SKDefaultTooltip();
 
     #endregion
 
@@ -64,38 +67,28 @@ public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingConte
     {
         InitializeComponent();
 
-        if (!LiveCharts.IsConfigured) LiveCharts.Configure(LiveChartsSkiaSharp.DefaultPlatformBuilder);
-
-        var stylesBuilder = LiveCharts.CurrentSettings.GetTheme<SkiaSharpDrawingContext>();
-        var initializer = stylesBuilder.GetVisualsInitializer();
-        if (stylesBuilder.CurrentColors is null || stylesBuilder.CurrentColors.Length == 0)
-            throw new Exception("Default colors are not valid");
-        initializer.ApplyStyleToChart(this);
+        if (!LiveCharts.IsConfigured) LiveCharts.Configure(config => config.UseDefaults());
 
         InitializeCore();
         SizeChanged += OnSizeChanged;
 
         _seriesObserver = new CollectionDeepObserver<ISeries>(
-           (object? sender, NotifyCollectionChangedEventArgs e) =>
-           {
-               if (core is null || (sender is IStopNPC stop && !stop.IsNotifyingChanges)) return;
-               core.Update();
-           },
-           (object? sender, PropertyChangedEventArgs e) =>
-           {
-               if (core is null || (sender is IStopNPC stop && !stop.IsNotifyingChanges)) return;
-               core.Update();
-           });
+           (object? sender, NotifyCollectionChangedEventArgs e) => _core?.Update(),
+           (object? sender, PropertyChangedEventArgs e) => _core?.Update());
+        _visualsObserver = new CollectionDeepObserver<ChartElement<SkiaSharpDrawingContext>>(
+          (object? sender, NotifyCollectionChangedEventArgs e) => _core?.Update(),
+          (object? sender, PropertyChangedEventArgs e) => _core?.Update());
 
         Series = new ObservableCollection<ISeries>();
+        VisualElements = new ObservableCollection<ChartElement<SkiaSharpDrawingContext>>();
 
         canvas.SkCanvasView.EnableTouchEvents = true;
         canvas.SkCanvasView.Touch += OnSkCanvasTouched;
 
-        if (core is null) throw new Exception("Core not found!");
-        core.Measuring += OnCoreMeasuring;
-        core.UpdateStarted += OnCoreUpdateStarted;
-        core.UpdateFinished += OnCoreUpdateFinished;
+        if (_core is null) throw new Exception("Core not found!");
+        _core.Measuring += OnCoreMeasuring;
+        _core.UpdateStarted += OnCoreUpdateStarted;
+        _core.UpdateFinished += OnCoreUpdateFinished;
     }
 
     #region bindable properties
@@ -110,9 +103,16 @@ public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingConte
             {
                 var chart = (PieChart)o;
                 chart.CoreCanvas.Sync = newValue;
-                if (chart.core is null) return;
-                chart.core.Update();
+                if (chart._core is null) return;
+                chart._core.Update();
             });
+
+    /// <summary>
+    /// The title property.
+    /// </summary>
+    public static readonly BindableProperty TitleProperty =
+        BindableProperty.Create(
+            nameof(Title), typeof(VisualElement<SkiaSharpDrawingContext>), typeof(PieChart), null, BindingMode.Default, null);
 
     /// <summary>
     /// The series property
@@ -126,165 +126,138 @@ public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingConte
                   var seriesObserver = chart._seriesObserver;
                   seriesObserver?.Dispose((IEnumerable<ISeries>)oldValue);
                   seriesObserver?.Initialize((IEnumerable<ISeries>)newValue);
-                  if (chart.core is null) return;
-                  chart.core.Update();
+                  if (chart._core is null) return;
+                  chart._core.Update();
               });
+
+    /// <summary>
+    /// The visual elements property.
+    /// </summary>
+    public static readonly BindableProperty VisualElementsProperty =
+        BindableProperty.Create(
+            nameof(VisualElements), typeof(IEnumerable<ChartElement<SkiaSharpDrawingContext>>), typeof(PieChart), new List<ChartElement<SkiaSharpDrawingContext>>(),
+            BindingMode.Default, null, (BindableObject o, object oldValue, object newValue) =>
+            {
+                var chart = (PieChart)o;
+                var observer = chart._visualsObserver;
+                observer?.Dispose((IEnumerable<ChartElement<SkiaSharpDrawingContext>>)oldValue);
+                observer?.Initialize((IEnumerable<ChartElement<SkiaSharpDrawingContext>>)newValue);
+                if (chart._core is null) return;
+                chart._core.Update();
+            });
 
     /// <summary>
     /// The initial rotation property
     /// </summary>
     public static readonly BindableProperty InitialRotationProperty =
         BindableProperty.Create(
-            nameof(InitialRotation), typeof(double), typeof(CartesianChart), 0d, BindingMode.Default, null, OnBindablePropertyChanged);
+            nameof(InitialRotation), typeof(double), typeof(PieChart), 0d, BindingMode.Default, null, OnBindablePropertyChanged);
+
+    /// <summary>
+    /// The IsClockwise angle property
+    /// </summary>
+    public static readonly BindableProperty IsClockwiseProperty =
+        BindableProperty.Create(
+            nameof(IsClockwise), typeof(bool), typeof(PieChart), true, BindingMode.Default, null, OnBindablePropertyChanged);
 
     /// <summary>
     /// The maximum angle property
     /// </summary>
     public static readonly BindableProperty MaxAngleProperty =
         BindableProperty.Create(
-            nameof(MaxAngle), typeof(double), typeof(CartesianChart), 360d, BindingMode.Default, null, OnBindablePropertyChanged);
+            nameof(MaxAngle), typeof(double), typeof(PieChart), 360d, BindingMode.Default, null, OnBindablePropertyChanged);
 
     /// <summary>
     /// The total property
     /// </summary>
     public static readonly BindableProperty TotalProperty =
         BindableProperty.Create(
-            nameof(Total), typeof(double?), typeof(CartesianChart), null, BindingMode.Default, null, OnBindablePropertyChanged);
+            nameof(Total), typeof(double?), typeof(PieChart), null, BindingMode.Default, null, OnBindablePropertyChanged);
 
     /// <summary>
     /// The draw margin property
     /// </summary>
     public static readonly BindableProperty DrawMarginProperty =
         BindableProperty.Create(
-            nameof(DrawMargin), typeof(Margin), typeof(CartesianChart), null, BindingMode.Default, null, OnBindablePropertyChanged);
+            nameof(DrawMargin), typeof(Margin), typeof(PieChart), null, BindingMode.Default, null, OnBindablePropertyChanged);
 
     /// <summary>
     /// The animations speed property
     /// </summary>
     public static readonly BindableProperty AnimationsSpeedProperty =
       BindableProperty.Create(
-          nameof(AnimationsSpeed), typeof(TimeSpan), typeof(PieChart), LiveCharts.CurrentSettings.DefaultAnimationsSpeed);
+          nameof(AnimationsSpeed), typeof(TimeSpan), typeof(PieChart), LiveCharts.DefaultSettings.AnimationsSpeed);
 
     /// <summary>
     /// The easing function property
     /// </summary>
     public static readonly BindableProperty EasingFunctionProperty =
         BindableProperty.Create(
-            nameof(EasingFunction), typeof(Func<float, float>), typeof(PieChart), LiveCharts.CurrentSettings.DefaultEasingFunction);
+            nameof(EasingFunction), typeof(Func<float, float>), typeof(PieChart), LiveCharts.DefaultSettings.EasingFunction);
 
     /// <summary>
     /// The legend position property
     /// </summary>
     public static readonly BindableProperty LegendPositionProperty =
         BindableProperty.Create(
-            nameof(LegendPosition), typeof(LegendPosition), typeof(CartesianChart),
-            LiveCharts.CurrentSettings.DefaultLegendPosition, propertyChanged: OnBindablePropertyChanged);
+            nameof(LegendPosition), typeof(LegendPosition), typeof(PieChart),
+            LiveCharts.DefaultSettings.LegendPosition, propertyChanged: OnBindablePropertyChanged);
 
     /// <summary>
-    /// The legend orientation property
+    /// The legend background property.
     /// </summary>
-    public static readonly BindableProperty LegendOrientationProperty =
+    public static readonly BindableProperty LegendBackgroundPaintProperty =
         BindableProperty.Create(
-            nameof(LegendOrientation), typeof(LegendOrientation), typeof(CartesianChart),
-            LiveCharts.CurrentSettings.DefaultLegendOrientation, propertyChanged: OnBindablePropertyChanged);
+            nameof(LegendBackgroundPaint), typeof(IPaint<SkiaSharpDrawingContext>), typeof(PieChart),
+            LiveCharts.DefaultSettings.LegendBackgroundPaint, propertyChanged: OnBindablePropertyChanged);
 
     /// <summary>
-    /// The legend template property
+    /// The legend text paint property.
     /// </summary>
-    public static readonly BindableProperty LegendTemplateProperty =
+    public static readonly BindableProperty LegendTextPaintProperty =
         BindableProperty.Create(
-            nameof(LegendTemplate), typeof(DataTemplate), typeof(CartesianChart), null, propertyChanged: OnBindablePropertyChanged);
+            nameof(LegendTextPaint), typeof(IPaint<SkiaSharpDrawingContext>), typeof(PieChart),
+            LiveCharts.DefaultSettings.LegendTextPaint, propertyChanged: OnBindablePropertyChanged);
 
     /// <summary>
-    /// The legend font family property
+    /// The legend text size property.
     /// </summary>
-    public static readonly BindableProperty LegendFontFamilyProperty =
+    public static readonly BindableProperty LegendTextSizeProperty =
         BindableProperty.Create(
-            nameof(LegendFontFamily), typeof(string), typeof(CartesianChart), null, propertyChanged: OnBindablePropertyChanged);
-
-    /// <summary>
-    /// The legend font size property
-    /// </summary>
-    public static readonly BindableProperty LegendFontSizeProperty =
-        BindableProperty.Create(
-            nameof(LegendFontSize), typeof(double), typeof(CartesianChart), 13d, propertyChanged: OnBindablePropertyChanged);
-
-    /// <summary>
-    /// The legend text color property
-    /// </summary>
-    public static readonly BindableProperty LegendTextBrushProperty =
-        BindableProperty.Create(
-            nameof(LegendTextBrush), typeof(Color), typeof(CartesianChart),
-            Color.FromRgb(35 / 255d, 35 / 255d, 35 / 255d), propertyChanged: OnBindablePropertyChanged);
-
-    /// <summary>
-    /// The legend background property
-    /// </summary>
-    public static readonly BindableProperty LegendBackgroundProperty =
-        BindableProperty.Create(
-            nameof(LegendBackground), typeof(Color), typeof(CartesianChart),
-            Color.FromRgb(250 / 255d, 250 / 255d, 250 / 255d), propertyChanged: OnBindablePropertyChanged);
-
-    /// <summary>
-    /// The legend font attributes property
-    /// </summary>
-    public static readonly BindableProperty LegendFontAttributesProperty =
-        BindableProperty.Create(
-            nameof(LegendFontAttributes), typeof(FontAttributes), typeof(CartesianChart),
-            FontAttributes.None, propertyChanged: OnBindablePropertyChanged);
+            nameof(LegendTextSize), typeof(double?), typeof(PieChart),
+            LiveCharts.DefaultSettings.LegendTextSize, propertyChanged: OnBindablePropertyChanged);
 
     /// <summary>
     /// The tool tip position property;
     /// </summary>
     public static readonly BindableProperty TooltipPositionProperty =
        BindableProperty.Create(
-           nameof(TooltipPosition), typeof(TooltipPosition), typeof(CartesianChart),
-           LiveCharts.CurrentSettings.DefaultTooltipPosition, propertyChanged: OnBindablePropertyChanged);
+           nameof(TooltipPosition), typeof(TooltipPosition), typeof(PieChart),
+           LiveCharts.DefaultSettings.TooltipPosition, propertyChanged: OnBindablePropertyChanged);
 
     /// <summary>
-    /// The tool tip template property
+    /// The tooltip background property.
     /// </summary>
-    public static readonly BindableProperty TooltipTemplateProperty =
+    public static readonly BindableProperty TooltipBackgroundPaintProperty =
         BindableProperty.Create(
-            nameof(TooltipTemplate), typeof(DataTemplate), typeof(CartesianChart), null, propertyChanged: OnBindablePropertyChanged);
+            nameof(TooltipBackgroundPaint), typeof(IPaint<SkiaSharpDrawingContext>), typeof(PieChart),
+            LiveCharts.DefaultSettings.TooltipBackgroundPaint, propertyChanged: OnBindablePropertyChanged);
 
     /// <summary>
-    /// The tool tip font family property
+    /// The tooltip text paint property.
     /// </summary>
-    public static readonly BindableProperty TooltipFontFamilyProperty =
+    public static readonly BindableProperty TooltipTextPaintProperty =
         BindableProperty.Create(
-            nameof(TooltipFontFamily), typeof(string), typeof(CartesianChart), null, propertyChanged: OnBindablePropertyChanged);
+            nameof(TooltipTextPaint), typeof(IPaint<SkiaSharpDrawingContext>), typeof(PieChart),
+            LiveCharts.DefaultSettings.TooltipTextPaint, propertyChanged: OnBindablePropertyChanged);
 
     /// <summary>
-    /// The tool tip font size property
+    /// The tooltip text size property.
     /// </summary>
-    public static readonly BindableProperty TooltipFontSizeProperty =
+    public static readonly BindableProperty TooltipTextSizeProperty =
         BindableProperty.Create(
-            nameof(TooltipFontSize), typeof(double), typeof(CartesianChart), 13d, propertyChanged: OnBindablePropertyChanged);
-
-    /// <summary>
-    /// The tool tip text color property
-    /// </summary>
-    public static readonly BindableProperty TooltipTextColorProperty =
-        BindableProperty.Create(
-            nameof(TooltipTextBrush), typeof(Color), typeof(CartesianChart),
-            Color.FromRgb(35 / 255d, 35 / 255d, 35 / 255d), propertyChanged: OnBindablePropertyChanged);
-
-    /// <summary>
-    /// The tool tip background property
-    /// </summary>
-    public static readonly BindableProperty TooltipBackgroundProperty =
-        BindableProperty.Create(
-            nameof(TooltipBackground), typeof(Color), typeof(CartesianChart),
-            Color.FromRgb(250 / 255d, 250 / 255d, 250 / 255d), propertyChanged: OnBindablePropertyChanged);
-
-    /// <summary>
-    /// The tool tip font attributes property
-    /// </summary>
-    public static readonly BindableProperty TooltipFontAttributesProperty =
-        BindableProperty.Create(
-            nameof(TooltipFontAttributes), typeof(FontAttributes), typeof(CartesianChart),
-            FontAttributes.None, propertyChanged: OnBindablePropertyChanged);
+            nameof(TooltipTextSize), typeof(double?), typeof(PieChart),
+            LiveCharts.DefaultSettings.TooltipTextSize, propertyChanged: OnBindablePropertyChanged);
 
     /// <summary>
     /// The data pointer down command property
@@ -300,6 +273,14 @@ public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingConte
     public static readonly BindableProperty ChartPointPointerDownCommandProperty =
         BindableProperty.Create(
             nameof(ChartPointPointerDownCommand), typeof(ICommand), typeof(PieChart),
+            null, propertyChanged: OnBindablePropertyChanged);
+
+    /// <summary>
+    /// The visual elements pointer down command property
+    /// </summary>
+    public static readonly BindableProperty VisualElementsPointerDownCommandProperty =
+        BindableProperty.Create(
+            nameof(VisualElementsPointerDownCommand), typeof(ICommand), typeof(PieChart),
             null, propertyChanged: OnBindablePropertyChanged);
 
     #endregion
@@ -321,6 +302,9 @@ public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingConte
     /// <inheritdoc cref="IChartView.ChartPointPointerDown" />
     public event ChartPointHandler? ChartPointPointerDown;
 
+    /// <inheritdoc cref="IChartView{TDrawingContext}.VisualElementsPointerDown"/>
+    public event VisualElementHandler<SkiaSharpDrawingContext>? VisualElementsPointerDown;
+
     /// <summary>
     /// Called when the chart is touched.
     /// </summary>
@@ -330,15 +314,11 @@ public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingConte
 
     #region properties
 
-    Grid IMauiChart.LayoutGrid => grid;
-    BindableObject IMauiChart.Canvas => canvas;
-    BindableObject IMauiChart.Legend => legend;
-
     /// <inheritdoc cref="IChartView.DesignerMode" />
     bool IChartView.DesignerMode => DesignMode.IsDesignModeEnabled;
 
     /// <inheritdoc cref="IChartView.CoreChart" />
-    public IChart CoreChart => core ?? throw new Exception("Core not set yet.");
+    public IChart CoreChart => _core ?? throw new Exception("Core not set yet.");
 
     LvcColor IChartView.BackColor
     {
@@ -350,7 +330,7 @@ public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingConte
     }
 
     PieChart<SkiaSharpDrawingContext> IPieChartView<SkiaSharpDrawingContext>.Core =>
-        core is null ? throw new Exception("core not found") : (PieChart<SkiaSharpDrawingContext>)core;
+        _core is null ? throw new Exception("core not found") : (PieChart<SkiaSharpDrawingContext>)_core;
 
     /// <inheritdoc cref="IChartView.SyncContext" />
     public object SyncContext
@@ -375,11 +355,32 @@ public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingConte
         set => SetValue(DrawMarginProperty, value);
     }
 
+    /// <inheritdoc cref="IChartView{TDrawingContext}.Title" />
+    public VisualElement<SkiaSharpDrawingContext>? Title
+    {
+        get => (VisualElement<SkiaSharpDrawingContext>?)GetValue(TitleProperty);
+        set => SetValue(TitleProperty, value);
+    }
+
     /// <inheritdoc cref="IPieChartView{TDrawingContext}.Series" />
     public IEnumerable<ISeries> Series
     {
         get => (IEnumerable<ISeries>)GetValue(SeriesProperty);
         set => SetValue(SeriesProperty, value);
+    }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.VisualElements" />
+    public IEnumerable<ChartElement<SkiaSharpDrawingContext>> VisualElements
+    {
+        get => (IEnumerable<ChartElement<SkiaSharpDrawingContext>>)GetValue(VisualElementsProperty);
+        set => SetValue(VisualElementsProperty, value);
+    }
+
+    /// <inheritdoc cref="IPieChartView{TDrawingContext}.IsClockwise" />
+    public bool IsClockwise
+    {
+        get => (bool)GetValue(IsClockwiseProperty);
+        set => SetValue(IsClockwiseProperty, value);
     }
 
     /// <inheritdoc cref="IPieChartView{TDrawingContext}.InitialRotation" />
@@ -424,87 +425,29 @@ public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingConte
         set => SetValue(LegendPositionProperty, value);
     }
 
-    /// <inheritdoc cref="IChartView.LegendOrientation" />
-    public LegendOrientation LegendOrientation
+    /// <inheritdoc cref="IChartView{TDrawingContext}.LegendBackgroundPaint" />
+    public IPaint<SkiaSharpDrawingContext>? LegendBackgroundPaint
     {
-        get => (LegendOrientation)GetValue(LegendOrientationProperty);
-        set => SetValue(LegendOrientationProperty, value);
+        get => (IPaint<SkiaSharpDrawingContext>?)GetValue(LegendBackgroundPaintProperty);
+        set => SetValue(LegendBackgroundPaintProperty, value);
     }
 
-    /// <summary>
-    /// Gets or sets the legend template.
-    /// </summary>
-    /// <value>
-    /// The legend template.
-    /// </value>
-    public DataTemplate LegendTemplate
+    /// <inheritdoc cref="IChartView{TDrawingContext}.LegendTextPaint" />
+    public IPaint<SkiaSharpDrawingContext>? LegendTextPaint
     {
-        get => (DataTemplate)GetValue(LegendTemplateProperty);
-        set => SetValue(LegendTemplateProperty, value);
+        get => (IPaint<SkiaSharpDrawingContext>?)GetValue(LegendTextPaintProperty);
+        set => SetValue(LegendTextPaintProperty, value);
     }
 
-    /// <summary>
-    /// Gets or sets the legend font family.
-    /// </summary>
-    /// <value>
-    /// The legend font family.
-    /// </value>
-    public string LegendFontFamily
+    /// <inheritdoc cref="IChartView{TDrawingContext}.LegendTextSize" />
+    public double? LegendTextSize
     {
-        get => (string)GetValue(LegendFontFamilyProperty);
-        set => SetValue(LegendFontFamilyProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the size of the legend font.
-    /// </summary>
-    /// <value>
-    /// The size of the legend font.
-    /// </value>
-    public double LegendFontSize
-    {
-        get => (double)GetValue(LegendFontSizeProperty);
-        set => SetValue(LegendFontSizeProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the color of the legend text.
-    /// </summary>
-    /// <value>
-    /// The color of the legend text.
-    /// </value>
-    public Color LegendTextBrush
-    {
-        get => (Color)GetValue(LegendTextBrushProperty);
-        set => SetValue(LegendTextBrushProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the color of the legend background.
-    /// </summary>
-    /// <value>
-    /// The color of the legend background.
-    /// </value>
-    public Color LegendBackground
-    {
-        get => (Color)GetValue(LegendBackgroundProperty);
-        set => SetValue(LegendBackgroundProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the legend font attributes.
-    /// </summary>
-    /// <value>
-    /// The legend font attributes.
-    /// </value>
-    public FontAttributes LegendFontAttributes
-    {
-        get => (FontAttributes)GetValue(LegendFontAttributesProperty);
-        set => SetValue(LegendFontAttributesProperty, value);
+        get => (double?)GetValue(LegendTextSizeProperty);
+        set => SetValue(LegendTextSizeProperty, value);
     }
 
     /// <inheritdoc cref="IChartView{TDrawingContext}.Legend" />
-    public IChartLegend<SkiaSharpDrawingContext>? Legend => legend;
+    public IChartLegend<SkiaSharpDrawingContext>? Legend { get => _legend; set { _legend = value; OnPropertyChanged(); } }
 
     /// <inheritdoc cref="IChartView.TooltipPosition" />
     public TooltipPosition TooltipPosition
@@ -513,94 +456,35 @@ public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingConte
         set => SetValue(TooltipPositionProperty, value);
     }
 
-    /// <summary>
-    /// Gets or sets the tool tip template.
-    /// </summary>
-    /// <value>
-    /// The tool tip template.
-    /// </value>
-    public DataTemplate TooltipTemplate
+    /// <inheritdoc cref="IChartView{TDrawingContext}.TooltipBackgroundPaint" />
+    public IPaint<SkiaSharpDrawingContext>? TooltipBackgroundPaint
     {
-        get => (DataTemplate)GetValue(TooltipTemplateProperty);
-        set => SetValue(TooltipTemplateProperty, value);
+        get => (IPaint<SkiaSharpDrawingContext>?)GetValue(TooltipBackgroundPaintProperty);
+        set => SetValue(TooltipBackgroundPaintProperty, value);
     }
 
-    /// <summary>
-    /// Gets or sets the tool tip font family.
-    /// </summary>
-    /// <value>
-    /// The tool tip font family.
-    /// </value>
-    public string TooltipFontFamily
+    /// <inheritdoc cref="IChartView{TDrawingContext}.TooltipTextPaint" />
+    public IPaint<SkiaSharpDrawingContext>? TooltipTextPaint
     {
-        get => (string)GetValue(TooltipFontFamilyProperty);
-        set => SetValue(TooltipFontFamilyProperty, value);
+        get => (IPaint<SkiaSharpDrawingContext>?)GetValue(TooltipTextPaintProperty);
+        set => SetValue(TooltipTextPaintProperty, value);
     }
 
-    /// <summary>
-    /// Gets or sets the size of the tool tip font.
-    /// </summary>
-    /// <value>
-    /// The size of the tool tip font.
-    /// </value>
-    public double TooltipFontSize
+    /// <inheritdoc cref="IChartView{TDrawingContext}.TooltipTextSize" />
+    public double? TooltipTextSize
     {
-        get => (double)GetValue(TooltipFontSizeProperty);
-        set => SetValue(TooltipFontSizeProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the color of the tool tip text.
-    /// </summary>
-    /// <value>
-    /// The color of the tool tip text.
-    /// </value>
-    public Color TooltipTextBrush
-    {
-        get => (Color)GetValue(TooltipTextColorProperty);
-        set => SetValue(TooltipTextColorProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the color of the tool tip background.
-    /// </summary>
-    /// <value>
-    /// The color of the tool tip background.
-    /// </value>
-    public Color TooltipBackground
-    {
-        get => (Color)GetValue(TooltipBackgroundProperty);
-        set => SetValue(TooltipBackgroundProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the tool tip font attributes.
-    /// </summary>
-    /// <value>
-    /// The tool tip font attributes.
-    /// </value>
-    public FontAttributes TooltipFontAttributes
-    {
-        get => (FontAttributes)GetValue(TooltipFontAttributesProperty);
-        set => SetValue(TooltipFontAttributesProperty, value);
+        get => (double?)GetValue(TooltipTextSizeProperty);
+        set => SetValue(TooltipTextSizeProperty, value);
     }
 
     /// <inheritdoc cref="IChartView{TDrawingContext}.Tooltip" />
-    public IChartTooltip<SkiaSharpDrawingContext>? Tooltip => tooltip;
+    public IChartTooltip<SkiaSharpDrawingContext>? Tooltip { get => _tooltip; set { _tooltip = value; OnPropertyChanged(); } }
 
     /// <inheritdoc cref="IChartView{TDrawingContext}.AutoUpdateEnabled" />
     public bool AutoUpdateEnabled { get; set; } = true;
 
     /// <inheritdoc cref="IChartView.UpdaterThrottler" />
-    public TimeSpan UpdaterThrottler
-    {
-        get => core?.UpdaterThrottler ?? throw new Exception("core not set yet.");
-        set
-        {
-            if (core is null) throw new Exception("core not set yet.");
-            core.UpdaterThrottler = value;
-        }
-    }
+    public TimeSpan UpdaterThrottler { get; set; } = LiveCharts.DefaultSettings.UpdateThrottlingTimeout;
 
     /// <summary>
     /// Gets or sets a command to execute when the pointer goes down on a data or data points.
@@ -620,36 +504,49 @@ public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingConte
         set => SetValue(ChartPointPointerDownCommandProperty, value);
     }
 
+    /// <summary>
+    /// Gets or sets a command to execute when the pointer goes down on a chart point.
+    /// </summary>
+    public ICommand? VisualElementsPointerDownCommand
+    {
+        get => (ICommand?)GetValue(VisualElementsPointerDownCommandProperty);
+        set => SetValue(VisualElementsPointerDownCommandProperty, value);
+    }
+
     #endregion
 
     /// <inheritdoc cref="IChartView{TDrawingContext}.ShowTooltip(IEnumerable{ChartPoint})"/>
     public void ShowTooltip(IEnumerable<ChartPoint> points)
     {
-        if (tooltip is null || core is null) return;
-
-        ((IChartTooltip<SkiaSharpDrawingContext>)tooltip).Show(points, core);
+        if (_tooltip is null || _core is null) return;
+        _tooltip.Show(points, _core);
     }
 
     /// <inheritdoc cref="IChartView{TDrawingContext}.HideTooltip"/>
     public void HideTooltip()
     {
-        if (tooltip is null || core is null) return;
-
-        core.ClearTooltipData();
-        ((IChartTooltip<SkiaSharpDrawingContext>)tooltip).Hide();
+        if (_tooltip is null || _core is null) return;
+        _core.ClearTooltipData();
+        _tooltip.Hide();
     }
 
-    /// <inheritdoc cref="IMauiChart.GetCanvasPosition" />
-    LvcPoint IMauiChart.GetCanvasPosition()
+    /// <inheritdoc cref="IChartView{TDrawingContext}.GetPointsAt(LvcPoint, TooltipFindingStrategy)"/>
+    public IEnumerable<ChartPoint> GetPointsAt(LvcPoint point, TooltipFindingStrategy strategy = TooltipFindingStrategy.Automatic)
     {
-        return new LvcPoint((float)canvas.X, (float)canvas.Y);
+        if (_core is not PieChart<SkiaSharpDrawingContext> cc) throw new Exception("core not found");
+
+        if (strategy == TooltipFindingStrategy.Automatic)
+            strategy = cc.Series.GetTooltipFindingStrategy();
+
+        return cc.Series.SelectMany(series => series.FindHitPoints(cc, point, strategy));
     }
 
-    /// <inheritdoc cref="IChartView.SetTooltipStyle(LvcColor, LvcColor)"/>
-    public void SetTooltipStyle(LvcColor background, LvcColor textColor)
+    /// <inheritdoc cref="IChartView{TDrawingContext}.GetVisualsAt(LvcPoint)"/>
+    public IEnumerable<VisualElement<SkiaSharpDrawingContext>> GetVisualsAt(LvcPoint point)
     {
-        TooltipBackground = Color.FromRgba(background.R, background.G, background.B, background.A);
-        TooltipTextBrush = Color.FromRgba(textColor.R, textColor.G, textColor.B, textColor.A);
+        return _core is not PieChart<SkiaSharpDrawingContext> cc
+            ? throw new Exception("core not found")
+            : cc.VisualElements.SelectMany(visual => ((VisualElement<SkiaSharpDrawingContext>)visual).IsHitBy(_core, point));
     }
 
     void IChartView.InvokeOnUIThread(Action action)
@@ -663,8 +560,8 @@ public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingConte
     /// <returns></returns>
     protected void InitializeCore()
     {
-        core = new PieChart<SkiaSharpDrawingContext>(this, LiveChartsSkiaSharp.DefaultPlatformBuilder, canvas.CanvasCore);
-        core.Update();
+        _core = new PieChart<SkiaSharpDrawingContext>(this, config => config.UseDefaults(), canvas.CanvasCore);
+        _core.Update();
     }
 
     /// <summary>
@@ -677,8 +574,8 @@ public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingConte
     protected static void OnBindablePropertyChanged(BindableObject o, object oldValue, object newValue)
     {
         var chart = (PieChart)o;
-        if (chart.core is null) return;
-        chart.core.Update();
+        if (chart._core is null) return;
+        chart._core.Update();
     }
 
     /// <inheritdoc cref="NavigableElement.OnParentSet"/>
@@ -687,26 +584,26 @@ public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingConte
         base.OnParentSet();
         if (Parent == null)
         {
-            core?.Unload();
+            _core?.Unload();
             return;
         }
 
-        core?.Load();
+        _core?.Load();
     }
 
     private void OnSizeChanged(object? sender, EventArgs e)
     {
-        if (core is null) return;
-        core.Update();
+        if (_core is null) return;
+        _core.Update();
     }
 
     private void OnSkCanvasTouched(object? sender, SKTouchEventArgs e)
     {
-        if (core is null) return;
+        if (_core is null) return;
 
         var location = new LvcPoint(e.Location.X, e.Location.Y);
-        core.InvokePointerDown(location);
-        core.InvokePointerMove(location);
+        _core.InvokePointerDown(location, false);
+        _core.InvokePointerMove(location);
 
         Touched?.Invoke(this, e);
     }
@@ -734,6 +631,16 @@ public partial class PieChart : ContentView, IPieChartView<SkiaSharpDrawingConte
         var closest = points.FindClosestTo(pointer);
         ChartPointPointerDown?.Invoke(this, closest);
         if (ChartPointPointerDownCommand is not null && ChartPointPointerDownCommand.CanExecute(closest)) ChartPointPointerDownCommand.Execute(closest);
+    }
+
+    void IChartView<SkiaSharpDrawingContext>.OnVisualElementPointerDown(
+        IEnumerable<VisualElement<SkiaSharpDrawingContext>> visualElements, LvcPoint pointer)
+    {
+        var args = new VisualElementsEventArgs<SkiaSharpDrawingContext>(visualElements, pointer);
+
+        VisualElementsPointerDown?.Invoke(this, args);
+        if (VisualElementsPointerDownCommand is not null && VisualElementsPointerDownCommand.CanExecute(args))
+            VisualElementsPointerDownCommand.Execute(args);
     }
 
     void IChartView.Invalidate()

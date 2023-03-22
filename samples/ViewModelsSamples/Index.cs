@@ -69,6 +69,7 @@ public static class Index
         "Polar/Coordinates",
 
         "Axes/ColorsAndPosition",
+        //"Axes/Crosshairs",
         "Axes/LabelsFormat",
         "Axes/LabelsFormat2",
         "Axes/NamedLabels",
@@ -88,6 +89,8 @@ public static class Index
 
         "General/Sections",
         "General/Sections2",
+        "General/ConditionalDraw",
+        "General/VisualElements",
         "General/ChartToImage",
         "General/Tooltips",
         "General/Legends",
@@ -105,10 +108,10 @@ public static class Index
         "VisualTest/DataTemplate",
         "VisualTest/Tabs",
 
-        //"Test/ChangeSeriesInstance",
-        //"Test/Dispose",
-        //"Test/MotionCanvasDispose",
+        "Test/ChangeSeriesInstance",
+        "Test/Dispose",
+        "Test/MotionCanvasDispose",
 
         "Maps/World"
-        };
+    };
 }

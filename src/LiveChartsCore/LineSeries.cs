@@ -72,7 +72,7 @@ public class LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry,
     }
 
     /// <inheritdoc cref="ILineSeries{TDrawingContext}.GeometrySize"/>
-    public double GeometrySize { get => _geometrySize; set { _geometrySize = (float)value; OnPropertyChanged(); } }
+    public double GeometrySize { get => _geometrySize; set => SetProperty(ref _geometrySize, (float)value); }
 
     /// <inheritdoc cref="ILineSeries{TDrawingContext}.LineSmoothness"/>
     public double LineSmoothness
@@ -83,13 +83,12 @@ public class LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry,
             var v = value;
             if (value > 1) v = 1;
             if (value < 0) v = 0;
-            _lineSmoothness = (float)v;
-            OnPropertyChanged();
+            SetProperty(ref _lineSmoothness, (float)v);
         }
     }
 
     /// <inheritdoc cref="ILineSeries{TDrawingContext}.EnableNullSplitting"/>
-    public bool EnableNullSplitting { get => _enableNullSplitting; set { _enableNullSplitting = value; OnPropertyChanged(); } }
+    public bool EnableNullSplitting { get => _enableNullSplitting; set => SetProperty(ref _enableNullSplitting, value); }
 
     /// <inheritdoc cref="ILineSeries{TDrawingContext}.GeometryFill"/>
     public IPaint<TDrawingContext>? GeometryFill
@@ -105,8 +104,8 @@ public class LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry,
         set => SetPaintProperty(ref _geometryStroke, value, true);
     }
 
-    /// <inheritdoc cref="ChartElement{TDrawingContext}.Measure(Chart{TDrawingContext})"/>
-    public override void Measure(Chart<TDrawingContext> chart)
+    /// <inheritdoc cref="ChartElement{TDrawingContext}.Invalidate(Chart{TDrawingContext})"/>
+    public override void Invalidate(Chart<TDrawingContext> chart)
     {
         var cartesianChart = (CartesianChart<TDrawingContext>)chart;
         var primaryAxis = cartesianChart.YAxes[ScalesYAt];
@@ -116,8 +115,8 @@ public class LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry,
         var drawMarginSize = cartesianChart.DrawMarginSize;
         var secondaryScale = secondaryAxis.GetNextScaler(cartesianChart);
         var primaryScale = primaryAxis.GetNextScaler(cartesianChart);
-        var actualSecondaryScale = secondaryAxis.GetActualScalerScaler(cartesianChart);
-        var actualPrimaryScale = primaryAxis.GetActualScalerScaler(cartesianChart);
+        var actualSecondaryScale = secondaryAxis.GetActualScaler(cartesianChart);
+        var actualPrimaryScale = primaryAxis.GetActualScaler(cartesianChart);
 
         var gs = _geometrySize;
         var hgs = gs / 2f;
@@ -125,11 +124,11 @@ public class LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry,
         var p = primaryScale.ToPixels(pivot);
 
         // Note #240222
-        // the following cases probably have a similar perfamnce impact
-        // this options were neccesary at some older point when _enableNullSplitting = false could improve perfomance
-        // ToDo: Check this out, maybe this is unessesary now and we should just go for the first approach all the times.
+        // the following cases probably have a similar performance impact
+        // this options were necessary at some older point when _enableNullSplitting = false could improve performance
+        // ToDo: Check this out, maybe this is unnecessary now and we should just go for the first approach all the times.
         var segments = _enableNullSplitting
-            ? Fetch(cartesianChart).SplitByNullGaps(point => DeleteNullPoint(point, secondaryScale, primaryScale)) // callling this method is probably as expensive as the line bellow
+            ? Fetch(cartesianChart).SplitByNullGaps(point => DeleteNullPoint(point, secondaryScale, primaryScale)) // calling this method is probably as expensive as the line bellow
             : new List<IEnumerable<ChartPoint>>() { Fetch(cartesianChart) };
 
         var stacker = (SeriesProperties & SeriesProperties.Stacked) == SeriesProperties.Stacked
@@ -150,7 +149,7 @@ public class LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry,
         }
 
         var dls = (float)DataLabelsSize;
-        var toDeletePoints = new HashSet<ChartPoint>(everFetched);
+        var pointsCleanup = ChartPointCleanupContext.For(everFetched);
 
         if (!_strokePathHelperDictionary.TryGetValue(chart.Canvas.Sync, out var strokePathHelperContainer))
         {
@@ -274,10 +273,10 @@ public class LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry,
 
                 _ = everFetched.Add(data.TargetPoint);
 
-                if (GeometryFill is not null) GeometryFill.AddGeometryToPaintTask(cartesianChart.Canvas, visual.Geometry);
-                if (GeometryStroke is not null) GeometryStroke.AddGeometryToPaintTask(cartesianChart.Canvas, visual.Geometry);
+                GeometryFill?.AddGeometryToPaintTask(cartesianChart.Canvas, visual.Geometry);
+                GeometryStroke?.AddGeometryToPaintTask(cartesianChart.Canvas, visual.Geometry);
 
-                visual.Bezier.Id = data.TargetPoint.Context.Index;
+                visual.Bezier.Id = data.TargetPoint.Context.Entity.EntityIndex;
 
                 if (Fill is not null) fillVector.AddConsecutiveSegment(visual.Bezier, !IsFirstDraw);
                 if (Stroke is not null) strokeVector.AddConsecutiveSegment(visual.Bezier, !IsFirstDraw);
@@ -307,9 +306,11 @@ public class LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry,
 
                 var hags = gs < 8 ? 8 : gs;
 
-                data.TargetPoint.Context.HoverArea = new RectangleHoverArea(x - uwx * 0.5f, y - hgs, uwx, gs);
+                if (data.TargetPoint.Context.HoverArea is not RectangleHoverArea ha)
+                    data.TargetPoint.Context.HoverArea = ha = new RectangleHoverArea();
+                _ = ha.SetDimensions(x - uwx * 0.5f, y - hgs, uwx, gs);
 
-                _ = toDeletePoints.Remove(data.TargetPoint);
+                pointsCleanup.Clean(data.TargetPoint);
 
                 if (DataLabelsPaint is not null)
                 {
@@ -397,153 +398,91 @@ public class LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry,
             DataLabelsPaint.ZIndex = actualZIndex + 0.5;
         }
 
-        foreach (var point in toDeletePoints)
-        {
-            if (point.Context.Chart != cartesianChart.View) continue;
-            SoftDeleteOrDisposePoint(point, primaryScale, secondaryScale);
-            _ = everFetched.Remove(point);
-        }
+        pointsCleanup.CollectPoints(
+            everFetched, cartesianChart.View, primaryScale, secondaryScale, SoftDeleteOrDisposePoint);
 
         IsFirstDraw = false;
     }
 
-    /// <inheritdoc cref="ICartesianSeries{TDrawingContext}.GetBounds(CartesianChart{TDrawingContext}, ICartesianAxis, ICartesianAxis)"/>
-    public override SeriesBounds GetBounds(
-        CartesianChart<TDrawingContext> chart, ICartesianAxis secondaryAxis, ICartesianAxis primaryAxis)
+    /// <inheritdoc cref="GetRequestedGeometrySize"/>
+    protected override double GetRequestedGeometrySize()
     {
-        var baseSeriesBounds = base.GetBounds(chart, secondaryAxis, primaryAxis);
-
-        if (baseSeriesBounds.HasData) return baseSeriesBounds;
-        var baseBounds = baseSeriesBounds.Bounds;
-
-        var tickPrimary = primaryAxis.GetTick(chart.ControlSize, baseBounds.VisiblePrimaryBounds);
-        var tickSecondary = secondaryAxis.GetTick(chart.ControlSize, baseBounds.VisibleSecondaryBounds);
-
-        var ts = tickSecondary.Value * DataPadding.X;
-        var tp = tickPrimary.Value * DataPadding.Y;
-
-        if (baseBounds.VisibleSecondaryBounds.Delta == 0)
-        {
-            var ms = baseBounds.VisibleSecondaryBounds.Min == 0 ? 1 : baseBounds.VisibleSecondaryBounds.Min;
-            ts = 0.1 * ms * DataPadding.X;
-        }
-
-        if (baseBounds.VisiblePrimaryBounds.Delta == 0)
-        {
-            var mp = baseBounds.VisiblePrimaryBounds.Min == 0 ? 1 : baseBounds.VisiblePrimaryBounds.Min;
-            tp = 0.1 * mp * DataPadding.Y;
-        }
-
-        var rgs = (GeometrySize + (GeometryStroke?.StrokeThickness ?? 0)) * 0.5f;
-
-        return
-            new SeriesBounds(
-                new DimensionalBounds
-                {
-                    SecondaryBounds = new Bounds
-                    {
-                        Max = baseBounds.SecondaryBounds.Max,
-                        Min = baseBounds.SecondaryBounds.Min,
-                        MinDelta = baseBounds.SecondaryBounds.MinDelta,
-                        PaddingMax = ts,
-                        PaddingMin = ts,
-                        RequestedGeometrySize = rgs
-                    },
-                    PrimaryBounds = new Bounds
-                    {
-                        Max = baseBounds.PrimaryBounds.Max,
-                        Min = baseBounds.PrimaryBounds.Min,
-                        MinDelta = baseBounds.PrimaryBounds.MinDelta,
-                        PaddingMax = tp,
-                        PaddingMin = tp,
-                        RequestedGeometrySize = rgs
-                    },
-                    VisibleSecondaryBounds = new Bounds
-                    {
-                        Max = baseBounds.VisibleSecondaryBounds.Max,
-                        Min = baseBounds.VisibleSecondaryBounds.Min,
-                    },
-                    VisiblePrimaryBounds = new Bounds
-                    {
-                        Max = baseBounds.VisiblePrimaryBounds.Max,
-                        Min = baseBounds.VisiblePrimaryBounds.Min
-                    }
-                },
-                false);
+        return (GeometrySize + (GeometryStroke?.StrokeThickness ?? 0)) * 0.5f;
     }
 
-    /// <inheritdoc cref="ChartSeries{TModel, TVisual, TLabel, TDrawingContext}.OnSeriesMiniatureChanged"/>
-    protected override void OnSeriesMiniatureChanged()
+    /// <inheritdoc cref="IChartSeries{TDrawingContext}.MiniatureEquals(IChartSeries{TDrawingContext})"/>
+    public override bool MiniatureEquals(IChartSeries<TDrawingContext> series)
     {
-        var context = new CanvasSchedule<TDrawingContext>();
-        var lss = (float)LegendShapeSize;
-        var w = LegendShapeSize;
-        var sh = 0f;
+        return series is LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry, TVisualPoint> lineSeries &&
+            Name == series.Name &&
+            !((ISeries)this).PaintsChanged &&
+            Fill == lineSeries.Fill && Stroke == lineSeries.Stroke &&
+            GeometryFill == lineSeries.GeometryFill && GeometryStroke == lineSeries.GeometryStroke;
+    }
 
-        if (_geometryStroke is not null)
+    /// <inheritdoc cref="Series{TModel, TVisual, TLabel, TDrawingContext}.GetMiniatresSketch"/>
+    public override Sketch<TDrawingContext> GetMiniatresSketch()
+    {
+        var schedules = new List<PaintSchedule<TDrawingContext>>();
+
+        if (GeometryFill is not null) schedules.Add(BuildMiniatureSchedule(GeometryFill, new TVisual()));
+        else if (Fill is not null) schedules.Add(BuildMiniatureSchedule(Fill, new TVisual()));
+
+        if (GeometryStroke is not null) schedules.Add(BuildMiniatureSchedule(GeometryStroke, new TVisual()));
+        else if (Stroke is not null) schedules.Add(BuildMiniatureSchedule(Stroke, new TVisual()));
+
+        return new Sketch<TDrawingContext>()
         {
-            var strokeClone = _geometryStroke.CloneTask();
-            var st = _geometryStroke.StrokeThickness;
-            if (st > MaxSeriesStroke)
-            {
-                st = MaxSeriesStroke;
-                strokeClone.StrokeThickness = MaxSeriesStroke;
-            }
+            Height = MiniatureShapeSize,
+            Width = MiniatureShapeSize,
+            PaintSchedules = schedules
+        };
+    }
 
-            var visual = new TVisual
-            {
-                X = st + MaxSeriesStroke - st,
-                Y = st + MaxSeriesStroke - st,
-                Height = lss,
-                Width = lss
-            };
-            sh = st;
-            strokeClone.ZIndex = 1;
-            context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(strokeClone, visual));
-        }
-        else if (Stroke is not null)
+    /// <inheritdoc cref="Series{TModel, TVisual, TLabel, TDrawingContext}.SoftDeleteOrDispose(IChartView)"/>
+    public override void SoftDeleteOrDispose(IChartView chart)
+    {
+        base.SoftDeleteOrDispose(chart);
+        var canvas = ((ICartesianChartView<TDrawingContext>)chart).CoreCanvas;
+
+        if (Fill is not null)
         {
-            var strokeClone = Stroke.CloneTask();
-            var st = strokeClone.StrokeThickness;
-            if (st > MaxSeriesStroke)
-            {
-                st = MaxSeriesStroke;
-                strokeClone.StrokeThickness = MaxSeriesStroke;
-            }
-
-            var visual = new TVisual
-            {
-                X = st + MaxSeriesStroke - st,
-                Y = st + MaxSeriesStroke - st,
-                Height = lss,
-                Width = lss
-            };
-            sh = st;
-            strokeClone.ZIndex = 1;
-            context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(strokeClone, visual));
+            foreach (var activeChartContainer in _fillPathHelperDictionary.ToArray())
+                foreach (var pathHelper in activeChartContainer.Value.ToArray())
+                    Fill.RemoveGeometryFromPainTask(canvas, pathHelper);
         }
 
-        if (_geometryFill is not null)
+        if (Stroke is not null)
         {
-            var fillClone = _geometryFill.CloneTask();
-            var visual = new TVisual { X = sh + MaxSeriesStroke - sh, Y = sh + MaxSeriesStroke - sh, Height = lss, Width = lss };
-            context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(fillClone, visual));
-        }
-        else if (Fill is not null)
-        {
-            var fillClone = Fill.CloneTask();
-            var visual = new TVisual { X = sh + MaxSeriesStroke - sh, Y = sh + MaxSeriesStroke - sh, Height = lss, Width = lss };
-            context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(fillClone, visual));
+            foreach (var activeChartContainer in _strokePathHelperDictionary.ToArray())
+                foreach (var pathHelper in activeChartContainer.Value.ToArray())
+                    Stroke.RemoveGeometryFromPainTask(canvas, pathHelper);
         }
 
-        context.Width = w + MaxSeriesStroke * 2;
-        context.Height = w + MaxSeriesStroke * 2;
+        if (GeometryFill is not null) canvas.RemovePaintTask(GeometryFill);
+        if (GeometryStroke is not null) canvas.RemovePaintTask(GeometryStroke);
+    }
 
-        CanvasSchedule = context;
+    /// <inheritdoc/>
+    public override void RemoveFromUI(Chart<TDrawingContext> chart)
+    {
+        base.RemoveFromUI(chart);
+
+        _ = _fillPathHelperDictionary.Remove(chart.Canvas.Sync);
+        _ = _strokePathHelperDictionary.Remove(chart.Canvas.Sync);
     }
 
     /// <summary>
-    /// Buils an spline from the given points.
+    /// Gets the paint tasks.
+    /// </summary>
+    /// <returns></returns>
+    internal override IPaint<TDrawingContext>?[] GetPaintTasks()
+    {
+        return new[] { Stroke, Fill, _geometryFill, _geometryStroke, DataLabelsPaint, hoverPaint };
+    }
+
+    /// <summary>
+    /// Builds an spline from the given points.
     /// </summary>
     /// <param name="points">The points.</param>
     /// <param name="stacker">The stacker.</param>
@@ -695,48 +634,6 @@ public class LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry,
 
         label.TextSize = 1;
         label.RemoveOnCompleted = true;
-    }
-
-    /// <summary>
-    /// Gets the paint tasks.
-    /// </summary>
-    /// <returns></returns>
-    protected override IPaint<TDrawingContext>?[] GetPaintTasks()
-    {
-        return new[] { Stroke, Fill, _geometryFill, _geometryStroke, DataLabelsPaint, hoverPaint };
-    }
-
-    /// <inheritdoc cref="Series{TModel, TVisual, TLabel, TDrawingContext}.SoftDeleteOrDispose(IChartView)"/>
-    public override void SoftDeleteOrDispose(IChartView chart)
-    {
-        base.SoftDeleteOrDispose(chart);
-        var canvas = ((ICartesianChartView<TDrawingContext>)chart).CoreCanvas;
-
-        if (Fill is not null)
-        {
-            foreach (var activeChartContainer in _fillPathHelperDictionary.ToArray())
-                foreach (var pathHelper in activeChartContainer.Value.ToArray())
-                    Fill.RemoveGeometryFromPainTask(canvas, pathHelper);
-        }
-
-        if (Stroke is not null)
-        {
-            foreach (var activeChartContainer in _strokePathHelperDictionary.ToArray())
-                foreach (var pathHelper in activeChartContainer.Value.ToArray())
-                    Stroke.RemoveGeometryFromPainTask(canvas, pathHelper);
-        }
-
-        if (GeometryFill is not null) canvas.RemovePaintTask(GeometryFill);
-        if (GeometryStroke is not null) canvas.RemovePaintTask(GeometryStroke);
-    }
-
-    /// <inheritdoc/>
-    public override void RemoveFromUI(Chart<TDrawingContext> chart)
-    {
-        base.RemoveFromUI(chart);
-
-        _ = _fillPathHelperDictionary.Remove(chart.Canvas.Sync);
-        _ = _strokePathHelperDictionary.Remove(chart.Canvas.Sync);
     }
 
     private void DeleteNullPoint(ChartPoint point, Scaler xScale, Scaler yScale)

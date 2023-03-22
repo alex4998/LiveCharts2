@@ -24,11 +24,14 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Linq;
 using Eto.Forms;
 using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel;
 using LiveChartsCore.Kernel.Sketches;
+using LiveChartsCore.Measure;
 using LiveChartsCore.SkiaSharpView.Drawing;
+using LiveChartsCore.VisualElements;
 
 namespace LiveChartsCore.SkiaSharpView.Eto;
 
@@ -37,6 +40,7 @@ public class PieChart : Chart, IPieChartView<SkiaSharpDrawingContext>
 {
     private CollectionDeepObserver<ISeries> _seriesObserver;
     private IEnumerable<ISeries> _series = new List<ISeries>();
+    private bool _isClockwise = true;
     private double _initialRotation;
     private double _maxAngle = 360;
     private double? _total;
@@ -55,16 +59,8 @@ public class PieChart : Chart, IPieChartView<SkiaSharpDrawingContext>
         : base(tooltip, legend)
     {
         _seriesObserver = new CollectionDeepObserver<ISeries>(
-           (object? sender, NotifyCollectionChangedEventArgs e) =>
-           {
-               if (sender is IStopNPC stop && !stop.IsNotifyingChanges) return;
-               OnPropertyChanged();
-           },
-           (object? sender, PropertyChangedEventArgs e) =>
-           {
-               if (sender is IStopNPC stop && !stop.IsNotifyingChanges) return;
-               OnPropertyChanged();
-           },
+           (object? sender, NotifyCollectionChangedEventArgs e) => OnPropertyChanged(),
+           (object? sender, PropertyChangedEventArgs e) => OnPropertyChanged(),
            true);
 
         motionCanvas.MouseDown += OnMouseDown;
@@ -86,6 +82,9 @@ public class PieChart : Chart, IPieChartView<SkiaSharpDrawingContext>
         }
     }
 
+    /// <inheritdoc cref="IPieChartView{TDrawingContext}.IsClockwise" />
+    public bool IsClockwise { get => _isClockwise; set { _isClockwise = value; OnPropertyChanged(); } }
+
     /// <inheritdoc cref="IPieChartView{TDrawingContext}.InitialRotation" />
     public double InitialRotation { get => _initialRotation; set { _initialRotation = value; OnPropertyChanged(); } }
 
@@ -95,13 +94,32 @@ public class PieChart : Chart, IPieChartView<SkiaSharpDrawingContext>
     /// <inheritdoc cref="IPieChartView{TDrawingContext}.Total" />
     public double? Total { get => _total; set { _total = value; OnPropertyChanged(); } }
 
+    /// <inheritdoc cref="IChartView{TDrawingContext}.GetPointsAt(LvcPoint, TooltipFindingStrategy)"/>
+    public override IEnumerable<ChartPoint> GetPointsAt(LvcPoint point, TooltipFindingStrategy strategy = TooltipFindingStrategy.Automatic)
+    {
+        if (core is not PieChart<SkiaSharpDrawingContext> cc) throw new Exception("core not found");
+
+        if (strategy == TooltipFindingStrategy.Automatic)
+            strategy = cc.Series.GetTooltipFindingStrategy();
+
+        return cc.Series.SelectMany(series => series.FindHitPoints(cc, point, strategy));
+    }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.GetVisualsAt(LvcPoint)"/>
+    public override IEnumerable<VisualElement<SkiaSharpDrawingContext>> GetVisualsAt(LvcPoint point)
+    {
+        return core is not PieChart<SkiaSharpDrawingContext> cc
+            ? throw new Exception("core not found")
+            : cc.VisualElements.SelectMany(visual => ((VisualElement<SkiaSharpDrawingContext>)visual).IsHitBy(core, point));
+    }
+
     /// <summary>
     /// Initializes the core.
     /// </summary>
     protected override void InitializeCore()
     {
         core = new PieChart<SkiaSharpDrawingContext>(
-            this, LiveChartsSkiaSharp.DefaultPlatformBuilder, motionCanvas.CanvasCore, true);
+            this, config => config.UseDefaults(), motionCanvas.CanvasCore, true);
         core.Update();
     }
 
@@ -110,10 +128,11 @@ public class PieChart : Chart, IPieChartView<SkiaSharpDrawingContext>
     {
         Series = Array.Empty<ISeries>();
         _seriesObserver = null!;
+        VisualElements = Array.Empty<ChartElement<SkiaSharpDrawingContext>>();
     }
 
     private void OnMouseDown(object? sender, MouseEventArgs e)
     {
-        core?.InvokePointerDown(new LvcPoint(e.Location.X, e.Location.Y));
+        core?.InvokePointerDown(new LvcPoint(e.Location.X, e.Location.Y), false);
     }
 }

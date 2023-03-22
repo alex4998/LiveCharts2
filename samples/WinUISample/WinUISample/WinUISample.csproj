@@ -42,11 +42,13 @@
     <None Remove="Events\Polar\View.xaml" />
     <None Remove="Financial\BasicCandlesticks\View.xaml" />
     <None Remove="General\Animations\View.xaml" />
+    <None Remove="General\ConditionalDraw\View.xaml" />
     <None Remove="General\ChartToImage\View.xaml" />
     <None Remove="General\Legends\View.xaml" />
     <None Remove="General\MultiThreading2\View.xaml" />
     <None Remove="General\MultiThreading\View.xaml" />
     <None Remove="General\NullPoints\View.xaml" />
+    <None Remove="General\VisualElements\View.xaml" />
     <None Remove="General\Sections2\View.xaml" />
     <None Remove="General\Sections\View.xaml" />
     <None Remove="General\TemplatedLegends\View.xaml" />
@@ -115,7 +117,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.0.3" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.1.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.22000.194" />
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
@@ -222,6 +224,9 @@
     <Page Update="General\Animations\View.xaml">
       <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>
     </Page>
+    <Page Update="General\Basic\View.xaml">
+      <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>
+    </Page>
     <Page Update="General\ChartToImage\View.xaml">
       <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>
     </Page>
@@ -235,6 +240,9 @@
       <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>
     </Page>
     <Page Update="General\NullPoints\View.xaml">
+      <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>
+    </Page>
+    <Page Update="General\Sections - Copy\View.xaml">
       <XamlRuntime>$(DefaultXamlRuntime)</XamlRuntime>
     </Page>
     <Page Update="General\Sections2\View.xaml">

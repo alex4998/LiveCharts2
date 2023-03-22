@@ -22,14 +22,14 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
+using System.Linq;
 using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel;
 using LiveChartsCore.Kernel.Events;
 using LiveChartsCore.Kernel.Sketches;
 using LiveChartsCore.Measure;
-using LiveChartsCore.Motion;
 using LiveChartsCore.SkiaSharpView.Drawing;
+using LiveChartsCore.VisualElements;
 using SkiaSharp;
 
 namespace LiveChartsCore.SkiaSharpView.SKCharts;
@@ -37,7 +37,7 @@ namespace LiveChartsCore.SkiaSharpView.SKCharts;
 /// <summary>
 /// In-memory chart that is able to generate a chart images.
 /// </summary>
-public class SKPieChart : IPieChartView<SkiaSharpDrawingContext>, ISkiaSharpChart
+public class SKPieChart : InMemorySkiaSharpChart, IPieChartView<SkiaSharpDrawingContext>
 {
     private LvcColor _backColor;
 
@@ -46,18 +46,14 @@ public class SKPieChart : IPieChartView<SkiaSharpDrawingContext>, ISkiaSharpChar
     /// </summary>
     public SKPieChart()
     {
-        if (!LiveCharts.IsConfigured) LiveCharts.Configure(LiveChartsSkiaSharp.DefaultPlatformBuilder);
+        if (!LiveCharts.IsConfigured) LiveCharts.Configure(config => config.UseDefaults());
 
-        var stylesBuilder = LiveCharts.CurrentSettings.GetTheme<SkiaSharpDrawingContext>();
-        var initializer = stylesBuilder.GetVisualsInitializer();
-        if (stylesBuilder.CurrentColors is null || stylesBuilder.CurrentColors.Length == 0)
-            throw new Exception("Default colors are not valid");
-        initializer.ApplyStyleToChart(this);
-
-        Core = new PieChart<SkiaSharpDrawingContext>(this, LiveChartsSkiaSharp.DefaultPlatformBuilder, CoreCanvas);
+        Core = new PieChart<SkiaSharpDrawingContext>(this, config => config.UseDefaults(), CoreCanvas);
         Core.Measuring += OnCoreMeasuring;
         Core.UpdateStarted += OnCoreUpdateStarted;
         Core.UpdateFinished += OnCoreUpdateFinished;
+
+        CoreChart = Core;
     }
 
     /// <summary>
@@ -70,34 +66,12 @@ public class SKPieChart : IPieChartView<SkiaSharpDrawingContext>, ISkiaSharpChar
         InitialRotation = view.InitialRotation;
         MaxAngle = view.MaxAngle;
         Total = view.Total;
+        LegendPosition = view.LegendPosition;
+        Title = view.Title;
     }
 
     /// <inheritdoc cref="IChartView.DesignerMode" />
     public bool DesignerMode => false;
-
-    /// <summary>
-    /// Gets or sets the background.
-    /// </summary>
-    /// <value>
-    /// The background.
-    /// </value>
-    public SKColor Background { get; set; } = SKColors.White;
-
-    /// <summary>
-    /// Gets or sets the height.
-    /// </summary>
-    /// <value>
-    /// The height.
-    /// </value>
-    public int Height { get; set; } = 600;
-
-    /// <summary>
-    /// Gets or sets the width.
-    /// </summary>
-    /// <value>
-    /// The width.
-    /// </value>
-    public int Width { get; set; } = 900;
 
     /// <inheritdoc cref="IPieChartView{TDrawingContext}.Core"/>
     public PieChart<SkiaSharpDrawingContext> Core { get; }
@@ -107,6 +81,9 @@ public class SKPieChart : IPieChartView<SkiaSharpDrawingContext>, ISkiaSharpChar
 
     /// <inheritdoc cref="IPieChartView{TDrawingContext}.Series"/>
     public IEnumerable<ISeries> Series { get; set; } = Array.Empty<ISeries>();
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.VisualElements"/>
+    public IEnumerable<ChartElement<SkiaSharpDrawingContext>> VisualElements { get; set; } = Array.Empty<ChartElement<SkiaSharpDrawingContext>>();
 
     /// <inheritdoc cref="IPieChartView{TDrawingContext}.InitialRotation"/>
     public double InitialRotation { get; set; }
@@ -120,17 +97,11 @@ public class SKPieChart : IPieChartView<SkiaSharpDrawingContext>, ISkiaSharpChar
     /// <inheritdoc cref="IChartView{TDrawingContext}.AutoUpdateEnabled"/>
     public bool AutoUpdateEnabled { get; set; }
 
-    /// <inheritdoc cref="IChartView{TDrawingContext}.CoreCanvas"/>
-    public MotionCanvas<SkiaSharpDrawingContext> CoreCanvas { get; } = new();
-
     /// <inheritdoc cref="IChartView{TDrawingContext}.Legend"/>
-    public IChartLegend<SkiaSharpDrawingContext>? Legend => null;
+    public IChartLegend<SkiaSharpDrawingContext>? Legend { get; set; } = new SKDefaultLegend();
 
     /// <inheritdoc cref="IChartView{TDrawingContext}.Tooltip"/>
-    public IChartTooltip<SkiaSharpDrawingContext>? Tooltip => null;
-
-    /// <inheritdoc cref="IChartView.CoreChart"/>
-    public IChart CoreChart => Core;
+    public IChartTooltip<SkiaSharpDrawingContext>? Tooltip { get; set; }
 
     LvcColor IChartView.BackColor
     {
@@ -142,7 +113,7 @@ public class SKPieChart : IPieChartView<SkiaSharpDrawingContext>, ISkiaSharpChar
         }
     }
 
-    LvcSize IChartView.ControlSize => new(Width, Height);
+    LvcSize IChartView.ControlSize => GetControlSize();
 
     /// <inheritdoc cref="IChartView.DrawMargin"/>
     public Margin? DrawMargin { get; set; }
@@ -159,11 +130,32 @@ public class SKPieChart : IPieChartView<SkiaSharpDrawingContext>, ISkiaSharpChar
     /// <inheritdoc cref="IChartView.LegendPosition"/>
     public LegendPosition LegendPosition { get; set; }
 
-    /// <inheritdoc cref="IChartView.LegendOrientation"/>
-    public LegendOrientation LegendOrientation { get; set; }
-
     /// <inheritdoc cref="IChartView.TooltipPosition"/>
     public TooltipPosition TooltipPosition { get; set; }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.Title"/>
+    public VisualElement<SkiaSharpDrawingContext>? Title { get; set; }
+
+    /// <inheritdoc cref="IPieChartView{TDrawingContext}.IsClockwise"/>
+    public bool IsClockwise { get; set; } = true;
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.LegendTextPaint"/>
+    public IPaint<SkiaSharpDrawingContext>? LegendTextPaint { get; set; }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.LegendBackgroundPaint"/>
+    public IPaint<SkiaSharpDrawingContext>? LegendBackgroundPaint { get; set; }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.LegendTextSize"/>
+    public double? LegendTextSize { get; set; }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.TooltipTextPaint"/>
+    public IPaint<SkiaSharpDrawingContext>? TooltipTextPaint { get; set; }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.TooltipBackgroundPaint"/>
+    public IPaint<SkiaSharpDrawingContext>? TooltipBackgroundPaint { get; set; }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.TooltipTextSize"/>
+    public double? TooltipTextSize { get; set; }
 
     /// <inheritdoc cref="IChartView{TDrawingContext}.Measuring" />
     public event ChartEventHandler<SkiaSharpDrawingContext>? Measuring;
@@ -180,14 +172,29 @@ public class SKPieChart : IPieChartView<SkiaSharpDrawingContext>, ISkiaSharpChar
     /// <inheritdoc cref="IChartView.ChartPointPointerDown" />
     public event ChartPointHandler? ChartPointPointerDown;
 
+    /// <inheritdoc cref="IChartView{TDrawingContext}.VisualElementsPointerDown"/>
+    public event VisualElementHandler<SkiaSharpDrawingContext>? VisualElementsPointerDown;
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.GetPointsAt(LvcPoint, TooltipFindingStrategy)"/>
+    public IEnumerable<ChartPoint> GetPointsAt(LvcPoint point, TooltipFindingStrategy strategy = TooltipFindingStrategy.Automatic)
+    {
+        if (strategy == TooltipFindingStrategy.Automatic)
+            strategy = Core.Series.GetTooltipFindingStrategy();
+
+        return Core.Series.SelectMany(series => series.FindHitPoints(Core, point, strategy));
+    }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.GetVisualsAt(LvcPoint)"/>
+    public IEnumerable<VisualElement<SkiaSharpDrawingContext>> GetVisualsAt(LvcPoint point)
+    {
+        return Core.VisualElements.SelectMany(visual => ((VisualElement<SkiaSharpDrawingContext>)visual).IsHitBy(Core, point));
+    }
+
     /// <inheritdoc cref="IChartView{TDrawingContext}.HideTooltip"/>
     public void HideTooltip()
     {
         throw new NotImplementedException();
     }
-
-    /// <inheritdoc cref="IChartView.SetTooltipStyle(LvcColor, LvcColor)"/>
-    public void SetTooltipStyle(LvcColor background, LvcColor textColor) { }
 
     /// <inheritdoc cref="IChartView{TDrawingContext}.ShowTooltip(IEnumerable{ChartPoint})"/>
     public void ShowTooltip(IEnumerable<ChartPoint> points)
@@ -198,43 +205,6 @@ public class SKPieChart : IPieChartView<SkiaSharpDrawingContext>, ISkiaSharpChar
     void IChartView.InvokeOnUIThread(Action action)
     {
         action();
-    }
-
-    /// <inheritdoc cref="ISkiaSharpChart.GetImage"/>
-    public SKImage GetImage()
-    {
-        CoreCanvas.DisableAnimations = true;
-
-        using var surface = SKSurface.Create(new SKImageInfo(Width, Height));
-
-        var canvas = surface.Canvas;
-        using var clearColor = new SKPaint { Color = Background };
-        canvas.DrawRect(0, 0, Width, Height, clearColor);
-
-        Core.IsLoaded = true;
-        Core.IsFirstDraw = true;
-        Core.Measure();
-        CoreCanvas.DrawFrame(
-            new SkiaSharpDrawingContext(
-                CoreCanvas,
-                new SKImageInfo(Height, Width),
-                surface,
-                canvas)
-            {
-                ClearColor = Background
-            });
-        Core.Unload();
-
-        return surface.Snapshot();
-    }
-
-    /// <inheritdoc cref="ISkiaSharpChart.SaveImage(string, SKEncodedImageFormat, int)"/>
-    public void SaveImage(string path, SKEncodedImageFormat format = SKEncodedImageFormat.Png, int quality = 80)
-    {
-        using var image = GetImage();
-        using var data = image.Encode(format, quality);
-        using var stream = File.OpenWrite(path);
-        data.SaveTo(stream);
     }
 
     private void OnCoreUpdateFinished(IChartView<SkiaSharpDrawingContext> chart)
@@ -252,10 +222,35 @@ public class SKPieChart : IPieChartView<SkiaSharpDrawingContext>, ISkiaSharpChar
         Measuring?.Invoke(this);
     }
 
+    private LvcSize GetControlSize()
+    {
+        if (LegendPosition == LegendPosition.Hidden || Legend is null) return new(Width, Height);
+
+        if (LegendPosition is LegendPosition.Left or LegendPosition.Right)
+        {
+            var imageControl = (IImageControl)Legend;
+            return new(Width - imageControl.Size.Width, Height);
+        }
+
+        if (LegendPosition is LegendPosition.Top or LegendPosition.Bottom)
+        {
+            var imageControl = (IImageControl)Legend;
+            return new(Width, Height - imageControl.Size.Height);
+        }
+
+        return new(Width, Height);
+    }
+
     void IChartView.OnDataPointerDown(IEnumerable<ChartPoint> points, LvcPoint pointer)
     {
         DataPointerDown?.Invoke(this, points);
         ChartPointPointerDown?.Invoke(this, points.FindClosestTo(pointer));
+    }
+
+    void IChartView<SkiaSharpDrawingContext>.OnVisualElementPointerDown(
+        IEnumerable<VisualElement<SkiaSharpDrawingContext>> visualElements, LvcPoint pointer)
+    {
+        VisualElementsPointerDown?.Invoke(this, new VisualElementsEventArgs<SkiaSharpDrawingContext>(visualElements, pointer));
     }
 
     void IChartView.Invalidate()

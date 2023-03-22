@@ -1,7 +1,10 @@
 # LiveCharts2
 
 [![CodeFactor](https://www.codefactor.io/repository/github/beto-rodriguez/livecharts2/badge)](https://www.codefactor.io/repository/github/beto-rodriguez/livecharts2)
-![Build and tests](https://github.com/beto-rodriguez/LiveCharts2/actions/workflows/build-and-test.yml/badge.svg)
+![Unit tests](https://github.com/beto-rodriguez/LiveCharts2/actions/workflows/run-unit-tests.yml/badge.svg)
+![SkiaSharp Views](https://github.com/beto-rodriguez/LiveCharts2/actions/workflows/compile-all-views.yml/badge.svg)
+
+[Watch Blazor WASM demo](https://blazor-livecharts.controli.app/) (only designed for desktop devices for now)
 
 LiveCharts2 (v2) is the evolution of [LiveCharts](https://github.com/Live-Charts/Live-Charts) (v0), it fixes the main design issues of its predecessor, it's focused to run everywhere, improves flexibility without losing what we already had in v0.
 
@@ -31,7 +34,7 @@ LiveCharts supports:
 - Eto Forms
 - Uwp
 
-You can also use LiveCharts 2 on a console app or on the server side installing only the core packages, take a look at [this guide](https://lvcharts.com/docs/Uno/latest/samples.general.chartToImage#build-an-image-in-the-server-side-or-console-app).
+You can also use LiveCharts 2 on a console app or on the server side installing only the core packages, take a look at [this guide](https://lvcharts.com/docs/WPF/2.0.0-beta.330/samples.general.chartToImage#build-an-image-in-the-server-side-or-console-app).
 
 ### The Errors of v0
 

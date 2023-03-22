@@ -17,9 +17,9 @@ public class View : Panel
             Series = viewModel.Series,
             YAxes = viewModel.YAxes,
             LegendPosition = LiveChartsCore.Measure.LegendPosition.Left,
-            LegendFont = Eto.Drawing.Fonts.Monospace(25),
-            LegendTextColor = Eto.Drawing.Color.FromArgb(50, 50, 50),
-            LegendBackColor = Eto.Drawing.Color.FromArgb(250, 250, 250),
+            LegendTextPaint = viewModel.LegendTextPaint,
+            LegendBackgroundPaint = viewModel.LedgendBackgroundPaint,
+            LegendTextSize = 16
         };
 
         Content = cartesianChart;

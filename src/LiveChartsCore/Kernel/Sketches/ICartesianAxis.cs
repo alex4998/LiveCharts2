@@ -65,6 +65,30 @@ public interface ICartesianAxis : IPlane, INotifyPropertyChanged
     float Yo { get; set; }
 
     /// <summary>
+    /// Gets or sets the size of the axis, this value is used internally to calculate the axis position.
+    /// </summary>
+    /// <value>
+    /// The length.
+    /// </value>
+    LvcSize Size { get; set; }
+
+    /// <summary>
+    /// Gets or sets the min zoom delta, the minimum difference between the max and min visible limits of the axis.
+    /// default is null and null means that the library will calculate this value based on the current data.
+    /// </summary>
+    double? MinZoomDelta { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the ticks are centered to the <see cref="IPlane.UnitWidth"/>, default is true.
+    /// </summary>
+    bool TicksAtCenter { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the separators are centered to the <see cref="IPlane.UnitWidth"/>, default is true.
+    /// </summary>
+    bool SeparatorsAtCenter { get; set; }
+
+    /// <summary>
     /// Gets or sets the reserved area for the labels.
     /// </summary>
     LvcRectangle LabelsDesiredSize { get; set; }
@@ -73,6 +97,17 @@ public interface ICartesianAxis : IPlane, INotifyPropertyChanged
     /// Gets or sets the reserved area for the name.
     /// </summary>
     LvcRectangle NameDesiredSize { get; set; }
+
+    /// <summary>
+    /// Places the title in the same direction as the axis, default is false.
+    /// </summary>
+    bool InLineNamePlacement { get; set; }
+
+    /// <summary>
+    /// Gets or sets the labels alignment, default is null and means that the library will set it based on the
+    /// <see cref="Orientation"/> and <see cref="Position"/> properties.
+    /// </summary>
+    Align? LabelsAlignment { get; set; }
 
     /// <summary>
     /// Gets or sets the axis position.
@@ -92,4 +127,90 @@ public interface ICartesianAxis : IPlane, INotifyPropertyChanged
     /// Occurs when the axis is initialized.
     /// </summary>
     event Action<ICartesianAxis>? Initialized;
+}
+
+/// <summary>
+/// Defines an Axis in a Cartesian chart.
+/// </summary>
+/// <typeparam name="TDrawingContext"></typeparam>
+public interface ICartesianAxis<TDrawingContext> : ICartesianAxis
+    where TDrawingContext : DrawingContext
+{
+    /// <summary>
+    /// Gets or sets the sub-separators paint.
+    /// </summary>
+    /// <value>
+    /// The separators paint.
+    /// </value>
+    IPaint<TDrawingContext>? SubseparatorsPaint { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether the ticks path should be drawn.
+    /// </summary>
+    bool DrawTicksPath { get; set; }
+
+    /// <summary>
+    /// Gets or sets the separators paint.
+    /// </summary>
+    /// <value>
+    /// The separators paint.
+    /// </value>
+    IPaint<TDrawingContext>? TicksPaint { get; set; }
+
+    /// <summary>
+    /// Gets or sets the separators paint.
+    /// </summary>
+    /// <value>
+    /// The separators paint.
+    /// </value>
+    IPaint<TDrawingContext>? SubticksPaint { get; set; }
+
+    /// <summary>
+    /// Gets or sets the zero paint.
+    /// </summary>
+    /// <value>
+    /// The separators paint.
+    /// </value>
+    IPaint<TDrawingContext>? ZeroPaint { get; set; }
+
+    /// <summary>
+    /// Gets or sets the crosshair paint.
+    /// </summary>
+    /// <value>
+    /// The separators paint.
+    /// </value>
+    IPaint<TDrawingContext>? CrosshairPaint { get; set; }
+
+    /// <summary>
+    /// Gets or sets the crosshair labels paint.
+    /// </summary>
+    /// <value>
+    /// The separators paint.
+    /// </value>
+    IPaint<TDrawingContext>? CrosshairLabelsPaint { get; set; }
+
+    /// <summary>
+    /// Gets or sets the crosshair background.
+    /// </summary>
+    /// <value>
+    /// The separators paint.
+    /// </value>
+    LvcColor? CrosshairLabelsBackground { get; set; }
+
+    /// <summary>
+    /// Gets or sets the crosshair labels padding.
+    /// </summary>
+    Padding? CrosshairPadding { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether the crosshair snaps to nearest series.
+    /// </summary>
+    bool CrosshairSnapEnabled { get; set; }
+
+    /// <summary>
+    /// Invalidates the crosshair visual.
+    /// </summary>
+    /// <param name="chart">The chart.</param>
+    /// <param name="pointerPosition">The pointer position</param>
+    void InvalidateCrosshair(Chart<TDrawingContext> chart, LvcPoint pointerPosition);
 }

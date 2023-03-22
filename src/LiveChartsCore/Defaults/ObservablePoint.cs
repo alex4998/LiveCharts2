@@ -20,8 +20,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using LiveChartsCore.Kernel;
+using LiveChartsCore.Kernel.Sketches;
 
 namespace LiveChartsCore.Defaults;
 
@@ -29,7 +32,7 @@ namespace LiveChartsCore.Defaults;
 /// Defines a point for the Cartesian coordinate system that implements <see cref="INotifyPropertyChanged"/>.
 /// </summary>
 /// <seealso cref="INotifyPropertyChanged" />
-public class ObservablePoint : INotifyPropertyChanged
+public class ObservablePoint : IChartEntity, INotifyPropertyChanged
 {
     private double? _x;
     private double? _y;
@@ -47,8 +50,8 @@ public class ObservablePoint : INotifyPropertyChanged
     /// <param name="y">The y coordinate.</param>
     public ObservablePoint(double? x, double? y)
     {
-        _x = x;
-        _y = y;
+        X = x;
+        Y = y;
     }
 
     /// <summary>
@@ -67,6 +70,30 @@ public class ObservablePoint : INotifyPropertyChanged
     /// </value>
     public double? Y { get => _y; set { _y = value; OnPropertyChanged(); } }
 
+    /// <inheritdoc cref="IChartEntity.EntityIndex"/>
+#if NET5_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonIgnore]
+#else
+    [Newtonsoft.Json.JsonIgnore]
+#endif
+    public int EntityIndex { get; set; }
+
+    /// <inheritdoc cref="IChartEntity.ChartPoints"/>
+#if NET5_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonIgnore]
+#else
+    [Newtonsoft.Json.JsonIgnore]
+#endif
+    public Dictionary<IChartView, ChartPoint>? ChartPoints { get; set; }
+
+    /// <inheritdoc cref="IChartEntity.Coordinate"/>
+#if NET5_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonIgnore]
+#else
+    [Newtonsoft.Json.JsonIgnore]
+#endif
+    public Coordinate Coordinate { get; private set; } = Coordinate.Empty;
+
     /// <summary>
     /// Occurs when a property value changes.
     /// </summary>
@@ -74,11 +101,14 @@ public class ObservablePoint : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>
-    /// Called when a property changed.
+    /// Called when a property changes.
     /// </summary>
     /// <param name="propertyName">Name of the property.</param>
     protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
-        PropertyChanged?.Invoke(propertyName, new PropertyChangedEventArgs(propertyName));
+        Coordinate = _x is null || _y is null
+            ? Coordinate.Empty
+            : new Coordinate(_x.Value, _y.Value);
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }

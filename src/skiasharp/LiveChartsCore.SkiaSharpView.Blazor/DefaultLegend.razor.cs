@@ -45,7 +45,7 @@ public partial class DefaultLegend : IChartLegend<SkiaSharpDrawingContext>, IDis
     {
         base.OnAfterRender(firstRender);
 
-        if (_dom is null) _dom = new DomJsInterop(JS);
+        _dom ??= new DomJsInterop(JS);
     }
 
     /// <summary>
@@ -61,8 +61,8 @@ public partial class DefaultLegend : IChartLegend<SkiaSharpDrawingContext>, IDis
 
     async void IChartLegend<SkiaSharpDrawingContext>.Draw(Chart<SkiaSharpDrawingContext> chart)
     {
-        var series = chart.ChartSeries;
-        var legendOrientation = chart.LegendOrientation;
+        var series = chart.ChartSeries.Where(x => x.IsVisibleAtLegend);
+        var legendOrientation = LegendOrientation.Auto;
         var legendPosition = chart.LegendPosition;
 
         if (legendOrientation != LegendOrientation.Auto)

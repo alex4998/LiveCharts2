@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System;
 using System.Collections.Generic;
 using LiveChartsCore.Drawing;
 
@@ -87,14 +88,6 @@ public interface IPolarChartView<TDrawingContext> : IChartView<TDrawingContext>
     /// </value>
     IEnumerable<IPolarAxis> RadiusAxes { get; set; }
 
-    ///// <summary>
-    ///// Gets or sets the sections.
-    ///// </summary>
-    ///// <value>
-    ///// The sections.
-    ///// </value>
-    //IEnumerable<Section<TDrawingContext>> Sections { get; set; }
-
     /// <summary>
     /// Gets or sets the series to plot in the user interface.
     /// </summary>
@@ -103,28 +96,21 @@ public interface IPolarChartView<TDrawingContext> : IChartView<TDrawingContext>
     /// </value>
     IEnumerable<ISeries> Series { get; set; }
 
-    ///// <summary>
-    ///// Gets or sets the tool tip finding strategy.
-    ///// </summary>
-    ///// <value>
-    ///// The tool tip finding strategy.
-    ///// </value>
-    //TooltipFindingStrategy TooltipFindingStrategy { get; set; }
-
-    ///// <summary>
-    ///// Gets or sets the zooming speed from 0 to 1, where 0 is the fastest and 1 the slowest.
-    ///// </summary>
-    ///// <value>
-    ///// The zooming speed.
-    ///// </value>
-    //double ZoomingSpeed { get; set; }
-
     /// <summary>
-    /// Scales the UI point.
+    /// Scales a point in pixels to the chart data scale.
     /// </summary>
     /// <param name="point">The point.</param>
     /// <param name="angleAxisIndex">Index of the angle axis.</param>
     /// <param name="radiusAxisIndex">Index of the radius axis.</param>
     /// <returns></returns>
-    double[] ScaleUIPoint(LvcPoint point, int angleAxisIndex = 0, int radiusAxisIndex = 0);
+    LvcPointD ScalePixelsToData(LvcPointD point, int angleAxisIndex = 0, int radiusAxisIndex = 0);
+
+    /// <summary>
+    /// Scales a point in the chart data scale to pixels.
+    /// </summary>
+    /// <param name="point">The point.</param>
+    /// <param name="angleAxisIndex">Index of the x axis.</param>
+    /// <param name="radiusAxisIndex">Index of the radius axis.</param>
+    /// <returns></returns>
+    LvcPointD ScaleDataToPixels(LvcPointD point, int angleAxisIndex = 0, int radiusAxisIndex = 0);
 }

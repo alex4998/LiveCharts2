@@ -21,7 +21,6 @@
 // SOFTWARE.
 
 using System;
-using System.Collections.Generic;
 using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel;
 using LiveChartsCore.Kernel.Drawing;
@@ -56,8 +55,8 @@ public abstract class ColumnSeries<TModel, TVisual, TLabel, TDrawingContext> : B
         _isRounded = typeof(IRoundedRectangleChartPoint<TDrawingContext>).IsAssignableFrom(typeof(TVisual));
     }
 
-    /// <inheritdoc cref="ChartElement{TDrawingContext}.Measure(Chart{TDrawingContext})"/>
-    public override void Measure(Chart<TDrawingContext> chart)
+    /// <inheritdoc cref="ChartElement{TDrawingContext}.Invalidate(Chart{TDrawingContext})"/>
+    public override void Invalidate(Chart<TDrawingContext> chart)
     {
         var cartesianChart = (CartesianChart<TDrawingContext>)chart;
         var primaryAxis = cartesianChart.YAxes[ScalesYAt];
@@ -67,8 +66,8 @@ public abstract class ColumnSeries<TModel, TVisual, TLabel, TDrawingContext> : B
         var drawMarginSize = cartesianChart.DrawMarginSize;
         var secondaryScale = secondaryAxis.GetNextScaler(cartesianChart);
         var primaryScale = primaryAxis.GetNextScaler(cartesianChart);
-        var previousPrimaryScale = primaryAxis.GetActualScalerScaler(cartesianChart);
-        var previousSecondaryScale = secondaryAxis.GetActualScalerScaler(cartesianChart);
+        var previousPrimaryScale = primaryAxis.GetActualScaler(cartesianChart);
+        var previousSecondaryScale = secondaryAxis.GetActualScaler(cartesianChart);
 
         var isStacked = (SeriesProperties & SeriesProperties.Stacked) == SeriesProperties.Stacked;
 
@@ -101,7 +100,7 @@ public abstract class ColumnSeries<TModel, TVisual, TLabel, TDrawingContext> : B
         }
 
         var dls = (float)DataLabelsSize;
-        var toDeletePoints = new HashSet<ChartPoint>(everFetched);
+        var pointsCleanup = ChartPointCleanupContext.For(everFetched);
 
         var rx = (float)Rx;
         var ry = (float)Ry;
@@ -115,7 +114,7 @@ public abstract class ColumnSeries<TModel, TVisual, TLabel, TDrawingContext> : B
             var secondary = secondaryScale.ToPixels(point.SecondaryValue);
             var b = Math.Abs(primary - helper.p);
 
-            if (point.IsNull)
+            if (point.IsEmpty)
             {
                 if (visual is not null)
                 {
@@ -170,10 +169,12 @@ public abstract class ColumnSeries<TModel, TVisual, TLabel, TDrawingContext> : B
                 _ = everFetched.Add(point);
             }
 
-            if (Fill is not null) Fill.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
-            if (Stroke is not null) Stroke.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
+            Fill?.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
+            Stroke?.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
 
-            var cy = point.PrimaryValue > pivot ? primary : primary - b;
+            var cy = primaryAxis.IsInverted
+                ? (point.PrimaryValue > pivot ? primary - b : primary)
+                : (point.PrimaryValue > pivot ? primary : primary - b);
             var x = secondary - helper.uwm + helper.cp;
 
             if (stacker is not null)
@@ -209,9 +210,11 @@ public abstract class ColumnSeries<TModel, TVisual, TLabel, TDrawingContext> : B
             }
             visual.RemoveOnCompleted = false;
 
-            point.Context.HoverArea = new RectangleHoverArea(secondary - helper.actualUw * 0.5f, cy, helper.actualUw, b);
+            if (point.Context.HoverArea is not RectangleHoverArea ha)
+                point.Context.HoverArea = ha = new RectangleHoverArea();
+            _ = ha.SetDimensions(secondary - helper.actualUw * 0.5f, cy, helper.actualUw, b);
 
-            _ = toDeletePoints.Remove(point);
+            pointsCleanup.Clean(point);
 
             if (DataLabelsPaint is not null)
             {
@@ -251,73 +254,14 @@ public abstract class ColumnSeries<TModel, TVisual, TLabel, TDrawingContext> : B
             OnPointMeasured(point);
         }
 
-        foreach (var point in toDeletePoints)
-        {
-            if (point.Context.Chart != cartesianChart.View) continue;
-            SoftDeleteOrDisposePoint(point, primaryScale, secondaryScale);
-            _ = everFetched.Remove(point);
-        }
+        pointsCleanup.CollectPoints(
+            everFetched, cartesianChart.View, primaryScale, secondaryScale, SoftDeleteOrDisposePoint);
     }
 
-    /// <inheritdoc cref="ICartesianSeries{TDrawingContext}.GetBounds(CartesianChart{TDrawingContext}, ICartesianAxis, ICartesianAxis)"/>
-    public override SeriesBounds GetBounds(
-        CartesianChart<TDrawingContext> chart, ICartesianAxis secondaryAxis, ICartesianAxis primaryAxis)
+    /// <inheritdoc cref="CartesianSeries{TModel, TVisual, TLabel, TDrawingContext}.GetRequestedSecondaryOffset"/>
+    protected override double GetRequestedSecondaryOffset()
     {
-        var baseSeriesBounds = base.GetBounds(chart, secondaryAxis, primaryAxis);
-
-        if (baseSeriesBounds.HasData) return baseSeriesBounds;
-        var baseBounds = baseSeriesBounds.Bounds;
-
-        var tickPrimary = primaryAxis.GetTick(chart.ControlSize, baseBounds.VisiblePrimaryBounds);
-        var tickSecondary = secondaryAxis.GetTick(chart.ControlSize, baseBounds.VisibleSecondaryBounds);
-
-        var ts = tickSecondary.Value * DataPadding.X;
-        var tp = tickPrimary.Value * DataPadding.Y;
-
-        if (baseBounds.VisibleSecondaryBounds.Delta == 0)
-        {
-            var ms = baseBounds.VisibleSecondaryBounds.Min == 0 ? 1 : baseBounds.VisibleSecondaryBounds.Min;
-            ts = 0.1 * ms * DataPadding.X;
-        }
-
-        if (baseBounds.VisiblePrimaryBounds.Delta == 0)
-        {
-            var mp = baseBounds.VisiblePrimaryBounds.Min == 0 ? 1 : baseBounds.VisiblePrimaryBounds.Min;
-            tp = 0.1 * mp * DataPadding.Y;
-        }
-
-        return
-            new SeriesBounds(
-                new DimensionalBounds
-                {
-                    SecondaryBounds = new Bounds
-                    {
-                        Max = baseBounds.SecondaryBounds.Max + 0.5 * secondaryAxis.UnitWidth,
-                        Min = baseBounds.SecondaryBounds.Min - 0.5 * secondaryAxis.UnitWidth,
-                        MinDelta = baseBounds.SecondaryBounds.MinDelta,
-                        PaddingMax = ts,
-                        PaddingMin = ts
-                    },
-                    PrimaryBounds = new Bounds
-                    {
-                        Max = baseBounds.PrimaryBounds.Max,
-                        Min = baseBounds.PrimaryBounds.Min,
-                        PaddingMax = tp,
-                        PaddingMin = tp,
-                        MinDelta = baseBounds.PrimaryBounds.MinDelta
-                    },
-                    VisibleSecondaryBounds = new Bounds
-                    {
-                        Max = baseBounds.VisibleSecondaryBounds.Max + 0.5 * secondaryAxis.UnitWidth,
-                        Min = baseBounds.VisibleSecondaryBounds.Min - 0.5 * secondaryAxis.UnitWidth
-                    },
-                    VisiblePrimaryBounds = new Bounds
-                    {
-                        Max = baseBounds.VisiblePrimaryBounds.Max,
-                        Min = baseBounds.VisiblePrimaryBounds.Min
-                    }
-                },
-                false);
+        return 0.5f;
     }
 
     /// <inheritdoc cref="Series{TModel, TVisual, TLabel, TDrawingContext}.SetDefaultPointTransitions(ChartPoint)"/>

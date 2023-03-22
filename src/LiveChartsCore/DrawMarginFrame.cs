@@ -21,7 +21,6 @@
 // SOFTWARE.
 
 using System.ComponentModel;
-using System.Runtime.CompilerServices;
 using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel;
 
@@ -62,16 +61,10 @@ public abstract class DrawMarginFrame<TDrawingContext> : ChartElement<TDrawingCo
     }
 
     /// <summary>
-    /// Occurs when a property value changes.
-    /// </summary>
-    /// <returns></returns>
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    /// <summary>
     /// Gets the paint tasks.
     /// </summary>
     /// <returns></returns>
-    protected override IPaint<TDrawingContext>?[] GetPaintTasks()
+    internal override IPaint<TDrawingContext>?[] GetPaintTasks()
     {
         return new[] { _stroke, _fill };
     }
@@ -82,17 +75,8 @@ public abstract class DrawMarginFrame<TDrawingContext> : ChartElement<TDrawingCo
     /// <param name="propertyName"></param>
     protected override void OnPaintChanged(string? propertyName)
     {
+        base.OnPaintChanged(propertyName);
         OnPropertyChanged(propertyName);
-    }
-
-    /// <summary>
-    /// Called when a property changes.
-    /// </summary>
-    /// <param name="propertyName">Name of the property.</param>
-    /// <returns></returns>
-    protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }
 
@@ -107,12 +91,13 @@ public abstract class DrawMarginFrame<TSizedGeometry, TDrawingContext> : DrawMar
 {
     private TSizedGeometry? _fillSizedGeometry;
     private TSizedGeometry? _strokeSizedGeometry;
+    private bool _isInitialized = false;
 
     /// <summary>
     /// Measures the specified chart.
     /// </summary>
     /// <param name="chart">The chart.</param>
-    public override void Measure(Chart<TDrawingContext> chart)
+    public override void Invalidate(Chart<TDrawingContext> chart)
     {
         var drawLocation = chart.DrawMarginLocation;
         var drawMarginSize = chart.DrawMarginSize;
@@ -145,6 +130,36 @@ public abstract class DrawMarginFrame<TSizedGeometry, TDrawingContext> : DrawMar
 
             Stroke.AddGeometryToPaintTask(chart.Canvas, _strokeSizedGeometry);
             chart.Canvas.AddDrawableTask(Stroke);
+        }
+
+        if (!_isInitialized)
+        {
+            if (_fillSizedGeometry is not null)
+            {
+                _ = _fillSizedGeometry
+                    .TransitionateProperties(
+                       nameof(_fillSizedGeometry.X), nameof(_fillSizedGeometry.Y),
+                       nameof(_fillSizedGeometry.Width), nameof(_fillSizedGeometry.Height))
+                   .WithAnimation(animation =>
+                       animation
+                           .WithDuration(chart.AnimationsSpeed)
+                           .WithEasingFunction(chart.EasingFunction))
+                   .CompleteCurrentTransitions();
+            }
+            if (_strokeSizedGeometry is not null)
+            {
+                _ = _strokeSizedGeometry
+                    .TransitionateProperties(
+                       nameof(_fillSizedGeometry.X), nameof(_fillSizedGeometry.Y),
+                       nameof(_fillSizedGeometry.Width), nameof(_fillSizedGeometry.Height))
+                   .WithAnimation(animation =>
+                       animation
+                           .WithDuration(chart.AnimationsSpeed)
+                           .WithEasingFunction(chart.EasingFunction))
+                   .CompleteCurrentTransitions();
+            }
+
+            _isInitialized = true;
         }
     }
 }

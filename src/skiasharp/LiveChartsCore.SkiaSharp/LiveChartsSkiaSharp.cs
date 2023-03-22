@@ -26,10 +26,10 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel;
-using LiveChartsCore.Kernel.Drawing;
 using LiveChartsCore.Kernel.Sketches;
 using LiveChartsCore.Measure;
 using LiveChartsCore.SkiaSharpView.Drawing;
+using LiveChartsCore.SkiaSharpView.Painting;
 using SkiaSharp;
 
 namespace LiveChartsCore.SkiaSharpView;
@@ -45,7 +45,12 @@ public static class LiveChartsSkiaSharp
     /// <value>
     /// The default paint.
     /// </value>
-    public static DefaultPaint<SkiaSharpDrawingContext> DefaultPaint { get; } = new();
+    public static DefaultPaint DefaultPaint { get; } = new();
+
+    /// <summary>
+    /// Gets or sets an SKTypeface instance to use globally on any paint that does not specify any.
+    /// </summary>
+    public static SKTypeface? DefaultSKTypeface { get; set; }
 
     /// <summary>
     /// Gets the default platform builder.
@@ -60,16 +65,36 @@ public static class LiveChartsSkiaSharp
             .AddLightTheme();
 
     /// <summary>
+    /// Configures LiveCharts using the default settings for SkiaSharp.
+    /// </summary>
+    /// <param name="settings">The settings.</param>
+    /// <returns>The settings.</returns>
+    public static LiveChartsSettings UseDefaults(this LiveChartsSettings settings)
+    {
+        return settings
+            .AddDefaultMappers()
+            .AddSkiaSharp()
+            .AddLightTheme();
+    }
+
+    /// <summary>
     /// Adds SkiaSharp as the backend provider for LiveCharts.
     /// </summary>
     /// <param name="settings">The settings.</param>
     /// <returns></returns>
     public static LiveChartsSettings AddSkiaSharp(this LiveChartsSettings settings)
     {
-        // ToDo: default paint needs to be simplified???
+        // this is obsolete, currently only used in the GeoMap control and will be removed a future version.
         LiveCharts.DefaultPaint = DefaultPaint;
 
         return settings.HasProvider(new SkiaSharpProvider());
+    }
+
+    public static LiveChartsSettings WithGlobalSKTypeface(this LiveChartsSettings settings, SKTypeface typeface)
+    {
+        if (!LiveCharts.IsConfigured) LiveCharts.Configure(DefaultPlatformBuilder);
+        DefaultSKTypeface = typeface;
+        return settings;
     }
 
     /// <summary>
@@ -107,6 +132,7 @@ public static class LiveChartsSkiaSharp
     /// <summary>
     /// Gets the <see cref="SkiaFontMatchChar"/> key.
     /// </summary>
+    [Obsolete($"Use {nameof(Paint)}.{nameof(Paint.SKTypeface)} instead.")]
     public const string SkiaFontMatchChar = "matchChar";
 
     /// <summary>
@@ -114,6 +140,7 @@ public static class LiveChartsSkiaSharp
     /// </summary>
     /// <param name="char"></param>
     /// <returns></returns>
+    [Obsolete($"Use {nameof(Paint)}.{nameof(Paint.SKTypeface)} instead.")]
     public static string MatchChar(char @char)
     {
         return $"{SkiaFontMatchChar}|{@char}";
@@ -126,13 +153,13 @@ public static class LiveChartsSkiaSharp
     /// <param name="source">The data source.</param>
     /// <param name="buider">An optional builder.</param>
     /// <returns></returns>
-    public static ObservableCollection<ISeries> AsLiveChartsPieSeries<T>(
+    public static ObservableCollection<PieSeries<T>> AsLiveChartsPieSeries<T>(
         this IEnumerable<T> source,
         Action<T, PieSeries<T>>? buider = null)
     {
-        if (buider is null) buider = (instance, series) => { };
+        buider ??= (instance, series) => { };
 
-        return new ObservableCollection<ISeries>(
+        return new ObservableCollection<PieSeries<T>>(
             source.Select(instance =>
             {
                 var series = new PieSeries<T> { Values = new ObservableCollection<T> { instance } };
@@ -150,12 +177,12 @@ public static class LiveChartsSkiaSharp
     /// <returns>The distance in pixels.</returns>
     public static double GetDistanceTo(this ChartPoint target, LvcPoint location)
     {
-        double[] dataCoordinates;
+        LvcPointD dataCoordinates;
         double x, y;
 
         if (target.Context is ICartesianChartView<SkiaSharpDrawingContext> cartesianChart)
         {
-            dataCoordinates = cartesianChart.ScaleUIPoint(location);
+            dataCoordinates = cartesianChart.ScalePixelsToData(new LvcPointD(location));
 
             var cartesianSeries = (ICartesianSeries<SkiaSharpDrawingContext>)target.Context.Series;
 
@@ -189,7 +216,7 @@ public static class LiveChartsSkiaSharp
         }
         else if (target.Context is IPolarChartView<SkiaSharpDrawingContext> polarChart)
         {
-            dataCoordinates = polarChart.ScaleUIPoint(location);
+            dataCoordinates = polarChart.ScalePixelsToData(new LvcPointD(location));
 
             var polarSeries = (IPolarSeries<SkiaSharpDrawingContext>)target.Context.Series;
 
@@ -213,8 +240,8 @@ public static class LiveChartsSkiaSharp
         }
 
         // calculate the distance
-        var dx = dataCoordinates[0] - x;
-        var dy = dataCoordinates[1] - y;
+        var dx = dataCoordinates.X - x;
+        var dy = dataCoordinates.Y - y;
 
         var distance = Math.Sqrt(Math.Pow(dx, 2) + Math.Pow(dy, 2));
 

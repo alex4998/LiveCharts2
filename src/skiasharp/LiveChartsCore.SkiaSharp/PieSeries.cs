@@ -89,7 +89,7 @@ public class PieSeries<TModel, TVisual> : PieSeries<TModel, TVisual, LabelGeomet
 /// <typeparam name="TLabel">
 /// The type of the data label of every point.
 /// </typeparam>
-public class PieSeries<TModel, TVisual, TLabel> : PieSeries<TModel, TVisual, TLabel, SkiaSharpDrawingContext>
+public class PieSeries<TModel, TVisual, TLabel> : PieSeries<TModel, TVisual, TLabel, CircleGeometry, SkiaSharpDrawingContext>
     where TVisual : class, IDoughnutVisualChartPoint<SkiaSharpDrawingContext>, new()
     where TLabel : class, ILabelGeometry<SkiaSharpDrawingContext>, new()
 {
@@ -99,8 +99,5 @@ public class PieSeries<TModel, TVisual, TLabel> : PieSeries<TModel, TVisual, TLa
     /// <param name="isGauge"></param>
     /// <param name="isGaugeFill"></param>
     public PieSeries(bool isGauge = false, bool isGaugeFill = false) : base(isGauge, isGaugeFill)
-    {
-        if (!LiveCharts.IsConfigured) LiveCharts.Configure(LiveChartsSkiaSharp.DefaultPlatformBuilder);
-        InitializeSeries();
-    }
+    { }
 }

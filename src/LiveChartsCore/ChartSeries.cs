@@ -20,11 +20,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using System;
 using System.Collections.Generic;
 using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel;
-using LiveChartsCore.Kernel.Drawing;
 using LiveChartsCore.Kernel.Sketches;
 
 namespace LiveChartsCore;
@@ -44,12 +42,10 @@ public abstract class ChartSeries<TModel, TVisual, TLabel, TDrawingContext>
         where TVisual : class, IVisualChartPoint<TDrawingContext>, new()
         where TLabel : class, ILabelGeometry<TDrawingContext>, new()
 {
-    private double _legendShapeSize = 15;
     private IPaint<TDrawingContext>? _dataLabelsPaint;
     private double _dataLabelsSize = 16;
     private double _dataLabelsRotation = 0;
     private Padding _dataLabelsPadding = new() { Left = 6, Top = 8, Right = 6, Bottom = 8 };
-    private CanvasSchedule<TDrawingContext> _canvasSchedule = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ChartSeries{TModel, TVisual, TLabel, TDrawingContext}"/> class.
@@ -65,31 +61,16 @@ public abstract class ChartSeries<TModel, TVisual, TLabel, TDrawingContext>
     }
 
     /// <inheritdoc cref="IChartSeries{TDrawingContext}.DataLabelsSize"/>
-    public double DataLabelsSize { get => _dataLabelsSize; set { _dataLabelsSize = value; OnPropertyChanged(); } }
+    public double DataLabelsSize { get => _dataLabelsSize; set => SetProperty(ref _dataLabelsSize, value); }
 
     /// <inheritdoc cref="IChartSeries{TDrawingContext}.DataLabelsRotation"/>
-    public double DataLabelsRotation { get => _dataLabelsRotation; set { _dataLabelsRotation = value; OnPropertyChanged(); } }
+    public double DataLabelsRotation { get => _dataLabelsRotation; set => SetProperty(ref _dataLabelsRotation, value); }
 
     /// <inheritdoc cref="IChartSeries{TDrawingContext}.DataLabelsPadding"/>
-    public Padding DataLabelsPadding { get => _dataLabelsPadding; set { _dataLabelsPadding = value; OnPropertyChanged(); } }
-
-    /// <inheritdoc cref="IChartSeries{TDrawingContext}.CanvasSchedule"/>
-    public CanvasSchedule<TDrawingContext> CanvasSchedule
-    {
-        get => _canvasSchedule;
-        protected set { _canvasSchedule = value; OnPropertyChanged(); }
-    }
+    public Padding DataLabelsPadding { get => _dataLabelsPadding; set => SetProperty(ref _dataLabelsPadding, value); }
 
     /// <inheritdoc cref="IChartSeries{TDrawingContext}.IsFirstDraw"/>
     public bool IsFirstDraw { get; protected set; } = true;
-
-    /// <summary>
-    /// Gets or sets the size of the legend shape.
-    /// </summary>
-    /// <value>
-    /// The size of the legend shape.
-    /// </value>
-    public double LegendShapeSize { get => _legendShapeSize; set { _legendShapeSize = value; OnPropertyChanged(); } }
 
     /// <inheritdoc cref="IChartSeries{TDrawingContext}.MiniatureEquals(IChartSeries{TDrawingContext})"/>
     public abstract bool MiniatureEquals(IChartSeries<TDrawingContext> instance);
@@ -97,26 +78,5 @@ public abstract class ChartSeries<TModel, TVisual, TLabel, TDrawingContext>
     void IChartSeries<TDrawingContext>.OnDataPointerDown(IChartView chart, IEnumerable<ChartPoint> points, LvcPoint pointer)
     {
         OnDataPointerDown(chart, points, pointer);
-    }
-
-    /// <summary>
-    /// Called when the paint context changed.
-    /// </summary>
-    /// <returns></returns>
-    protected abstract void OnSeriesMiniatureChanged();
-
-    /// <summary>
-    /// Initializes the series.
-    /// </summary>
-    /// <returns></returns>
-    /// <exception cref="Exception">Default colors are not valid</exception>
-    protected void InitializeSeries()
-    {
-        var stylesBuilder = LiveCharts.CurrentSettings.GetTheme<TDrawingContext>();
-        var initializer = stylesBuilder.GetVisualsInitializer();
-        if (stylesBuilder.CurrentColors is null || stylesBuilder.CurrentColors.Length == 0)
-            throw new Exception("Default colors are not valid");
-
-        initializer.ApplyStyleToSeries(this);
     }
 }

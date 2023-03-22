@@ -25,6 +25,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Linq;
 using System.Windows.Input;
 using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel;
@@ -33,25 +34,28 @@ using LiveChartsCore.Kernel.Sketches;
 using LiveChartsCore.Measure;
 using LiveChartsCore.Motion;
 using LiveChartsCore.SkiaSharpView.Drawing;
-using Microsoft.UI.Text;
+using LiveChartsCore.SkiaSharpView.Painting;
+using LiveChartsCore.SkiaSharpView.SKCharts;
+using LiveChartsCore.VisualElements;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Windows.UI.Text;
 
 namespace LiveChartsCore.SkiaSharpView.WinUI;
 
 /// <inheritdoc cref="IChartView{TDrawingContext}" />
-public sealed partial class CartesianChart : UserControl, ICartesianChartView<SkiaSharpDrawingContext>, IWinUIChart
+public sealed partial class CartesianChart : UserControl, ICartesianChartView<SkiaSharpDrawingContext>
 {
     #region fields
 
     private Chart<SkiaSharpDrawingContext>? _core;
     private MotionCanvas? _canvas;
-    private CollectionDeepObserver<ISeries> _seriesObserver;
-    private CollectionDeepObserver<ICartesianAxis> _xObserver;
-    private CollectionDeepObserver<ICartesianAxis> _yObserver;
-    private CollectionDeepObserver<Section<SkiaSharpDrawingContext>> _sectionsObserver;
+    private readonly CollectionDeepObserver<ISeries> _seriesObserver;
+    private readonly CollectionDeepObserver<ICartesianAxis> _xObserver;
+    private readonly CollectionDeepObserver<ICartesianAxis> _yObserver;
+    private readonly CollectionDeepObserver<Section<SkiaSharpDrawingContext>> _sectionsObserver;
+    private readonly CollectionDeepObserver<ChartElement<SkiaSharpDrawingContext>> _visualsObserver;
 
     #endregion
 
@@ -60,13 +64,7 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
     /// </summary>
     public CartesianChart()
     {
-        if (!LiveCharts.IsConfigured) LiveCharts.Configure(LiveChartsSkiaSharp.DefaultPlatformBuilder);
-
-        var stylesBuilder = LiveCharts.CurrentSettings.GetTheme<SkiaSharpDrawingContext>();
-        var initializer = stylesBuilder.GetVisualsInitializer();
-        if (stylesBuilder.CurrentColors is null || stylesBuilder.CurrentColors.Length == 0)
-            throw new Exception("Default colors are not valid");
-        initializer.ApplyStyleToChart(this);
+        if (!LiveCharts.IsConfigured) LiveCharts.Configure(config => config.UseDefaults());
 
         InitializeComponent();
 
@@ -75,23 +73,33 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
         _yObserver = new CollectionDeepObserver<ICartesianAxis>(OnDeepCollectionChanged, OnDeepCollectionPropertyChanged, true);
         _sectionsObserver = new CollectionDeepObserver<Section<SkiaSharpDrawingContext>>(
             OnDeepCollectionChanged, OnDeepCollectionPropertyChanged, true);
+        _visualsObserver = new CollectionDeepObserver<ChartElement<SkiaSharpDrawingContext>>(
+            OnDeepCollectionChanged, OnDeepCollectionPropertyChanged, true);
 
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
 
         SetValue(XAxesProperty, new ObservableCollection<ICartesianAxis>()
             {
-                LiveCharts.CurrentSettings.GetProvider<SkiaSharpDrawingContext>().GetDefaultCartesianAxis()
+                LiveCharts.DefaultSettings.GetProvider<SkiaSharpDrawingContext>().GetDefaultCartesianAxis()
             });
         SetValue(YAxesProperty, new ObservableCollection<ICartesianAxis>()
             {
-                LiveCharts.CurrentSettings.GetProvider<SkiaSharpDrawingContext>().GetDefaultCartesianAxis()
+                LiveCharts.DefaultSettings.GetProvider<SkiaSharpDrawingContext>().GetDefaultCartesianAxis()
             });
         SetValue(SeriesProperty, new ObservableCollection<ISeries>());
         SetValue(SectionsProperty, new ObservableCollection<Section<SkiaSharpDrawingContext>>());
+        SetValue(VisualElementsProperty, new ObservableCollection<ChartElement<SkiaSharpDrawingContext>>());
     }
 
     #region dependency properties
+
+    /// <summary>
+    /// The series property.
+    /// </summary>
+    public static readonly DependencyProperty TitleProperty =
+        DependencyProperty.Register(
+            nameof(Title), typeof(VisualElement<SkiaSharpDrawingContext>), typeof(CartesianChart), new PropertyMetadata(null));
 
     /// <summary>
     /// The series property
@@ -158,6 +166,22 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
                 }));
 
     /// <summary>
+    /// The visual elements property
+    /// </summary>
+    public static readonly DependencyProperty VisualElementsProperty =
+        DependencyProperty.Register(
+            nameof(VisualElements), typeof(IEnumerable<ChartElement<SkiaSharpDrawingContext>>), typeof(CartesianChart), new PropertyMetadata(null,
+                (DependencyObject o, DependencyPropertyChangedEventArgs args) =>
+                {
+                    var chart = (CartesianChart)o;
+                    var observer = chart._visualsObserver;
+                    observer?.Dispose((IEnumerable<ChartElement<SkiaSharpDrawingContext>>)args.OldValue);
+                    observer?.Initialize((IEnumerable<ChartElement<SkiaSharpDrawingContext>>)args.NewValue);
+                    if (chart._core == null) return;
+                    chart._core.Update();
+                }));
+
+    /// <summary>
     /// The sync context property
     /// </summary>
     public static readonly DependencyProperty SyncContextProperty =
@@ -184,7 +208,7 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
     public static readonly DependencyProperty ZoomModeProperty =
         DependencyProperty.Register(
             nameof(ZoomMode), typeof(ZoomAndPanMode), typeof(CartesianChart),
-            new PropertyMetadata(LiveCharts.CurrentSettings.DefaultZoomMode));
+            new PropertyMetadata(LiveCharts.DefaultSettings.ZoomMode));
 
     /// <summary>
     /// The zooming speed property
@@ -192,7 +216,7 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
     public static readonly DependencyProperty ZoomingSpeedProperty =
         DependencyProperty.Register(
             nameof(ZoomingSpeed), typeof(double), typeof(CartesianChart),
-            new PropertyMetadata(LiveCharts.CurrentSettings.DefaultZoomSpeed));
+            new PropertyMetadata(LiveCharts.DefaultSettings.ZoomSpeed));
 
     /// <summary>
     /// The tool tip finding strategy property
@@ -200,7 +224,7 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
     public static readonly DependencyProperty TooltipFindingStrategyProperty =
         DependencyProperty.Register(
             nameof(TooltipFindingStrategy), typeof(TooltipFindingStrategy), typeof(CartesianChart),
-            new PropertyMetadata(LiveCharts.CurrentSettings.DefaultTooltipFindingStrategy, OnDependencyPropertyChanged));
+            new PropertyMetadata(LiveCharts.DefaultSettings.TooltipFindingStrategy, OnDependencyPropertyChanged));
 
     /// <summary>
     /// The draw margin property
@@ -215,7 +239,7 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
     public static readonly DependencyProperty AnimationsSpeedProperty =
         DependencyProperty.Register(
             nameof(AnimationsSpeed), typeof(TimeSpan), typeof(CartesianChart),
-            new PropertyMetadata(LiveCharts.CurrentSettings.DefaultAnimationsSpeed, OnDependencyPropertyChanged));
+            new PropertyMetadata(LiveCharts.DefaultSettings.AnimationsSpeed, OnDependencyPropertyChanged));
 
     /// <summary>
     /// The easing function property
@@ -223,7 +247,7 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
     public static readonly DependencyProperty EasingFunctionProperty =
         DependencyProperty.Register(
             nameof(EasingFunction), typeof(Func<float, float>), typeof(CartesianChart),
-            new PropertyMetadata(LiveCharts.CurrentSettings.DefaultEasingFunction, OnDependencyPropertyChanged));
+            new PropertyMetadata(LiveCharts.DefaultSettings.EasingFunction, OnDependencyPropertyChanged));
 
     /// <summary>
     /// The legend position property
@@ -231,15 +255,31 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
     public static readonly DependencyProperty LegendPositionProperty =
         DependencyProperty.Register(
             nameof(LegendPosition), typeof(LegendPosition), typeof(CartesianChart),
-            new PropertyMetadata(LiveCharts.CurrentSettings.DefaultLegendPosition, OnDependencyPropertyChanged));
+            new PropertyMetadata(LiveCharts.DefaultSettings.LegendPosition, OnDependencyPropertyChanged));
 
     /// <summary>
-    /// The legend orientation property
+    /// The legend background paint property
     /// </summary>
-    public static readonly DependencyProperty LegendOrientationProperty =
+    public static readonly DependencyProperty LegendBackgroundPaintProperty =
         DependencyProperty.Register(
-            nameof(LegendOrientation), typeof(LegendOrientation), typeof(CartesianChart),
-            new PropertyMetadata(LiveCharts.CurrentSettings.DefaultLegendOrientation, OnDependencyPropertyChanged));
+            nameof(LegendBackgroundPaint), typeof(IPaint<SkiaSharpDrawingContext>), typeof(CartesianChart),
+            new PropertyMetadata(LiveCharts.DefaultSettings.LegendBackgroundPaint, OnDependencyPropertyChanged));
+
+    /// <summary>
+    /// The legend text paint property
+    /// </summary>
+    public static readonly DependencyProperty LegendTextPaintProperty =
+        DependencyProperty.Register(
+            nameof(LegendTextPaint), typeof(IPaint<SkiaSharpDrawingContext>), typeof(CartesianChart),
+            new PropertyMetadata(LiveCharts.DefaultSettings.LegendTextPaint, OnDependencyPropertyChanged));
+
+    /// <summary>
+    /// The legend text size property
+    /// </summary>
+    public static readonly DependencyProperty LegendTextSizeProperty =
+        DependencyProperty.Register(
+            nameof(LegendTextSize), typeof(double?), typeof(CartesianChart),
+            new PropertyMetadata(LiveCharts.DefaultSettings.LegendTextSize, OnDependencyPropertyChanged));
 
     /// <summary>
     /// The tool tip position property
@@ -247,131 +287,31 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
     public static readonly DependencyProperty TooltipPositionProperty =
        DependencyProperty.Register(
            nameof(TooltipPosition), typeof(TooltipPosition), typeof(CartesianChart),
-           new PropertyMetadata(LiveCharts.CurrentSettings.DefaultTooltipPosition, OnDependencyPropertyChanged));
+           new PropertyMetadata(LiveCharts.DefaultSettings.TooltipPosition, OnDependencyPropertyChanged));
 
     /// <summary>
-    /// The tool tip background property
+    /// The tooltip background paint property
     /// </summary>
-    public static readonly DependencyProperty TooltipBackgroundProperty =
-       DependencyProperty.Register(
-           nameof(TooltipBackground), typeof(SolidColorBrush), typeof(CartesianChart),
-           new PropertyMetadata(new SolidColorBrush(Windows.UI.Color.FromArgb(255, 250, 250, 250)), OnDependencyPropertyChanged));
-
-    /// <summary>
-    /// The tool tip font family property
-    /// </summary>
-    public static readonly DependencyProperty TooltipFontFamilyProperty =
-       DependencyProperty.Register(
-           nameof(TooltipFontFamily), typeof(FontFamily), typeof(CartesianChart),
-           new PropertyMetadata(new FontFamily("Trebuchet MS"), OnDependencyPropertyChanged));
-
-    /// <summary>
-    /// The tool tip text color property
-    /// </summary>
-    public static readonly DependencyProperty TooltipTextBrushProperty =
-       DependencyProperty.Register(
-           nameof(TooltipTextBrush), typeof(Brush), typeof(CartesianChart),
-           new PropertyMetadata(new SolidColorBrush(Windows.UI.Color.FromArgb(255, 35, 35, 35)), OnDependencyPropertyChanged));
-
-    /// <summary>
-    /// The tool tip font size property
-    /// </summary>
-    public static readonly DependencyProperty TooltipFontSizeProperty =
-       DependencyProperty.Register(
-           nameof(TooltipFontSize), typeof(double), typeof(CartesianChart), new PropertyMetadata(13d, OnDependencyPropertyChanged));
-
-    /// <summary>
-    /// The tool tip font weight property
-    /// </summary>
-    public static readonly DependencyProperty TooltipFontWeightProperty =
-       DependencyProperty.Register(
-           nameof(TooltipFontWeight), typeof(FontWeight), typeof(CartesianChart),
-           new PropertyMetadata(FontWeights.Normal, OnDependencyPropertyChanged));
-
-    /// <summary>
-    /// The tool tip font stretch property
-    /// </summary>
-    public static readonly DependencyProperty TooltipFontStretchProperty =
-       DependencyProperty.Register(
-           nameof(TooltipFontStretch), typeof(FontStretch), typeof(CartesianChart),
-           new PropertyMetadata(FontStretch.Normal, OnDependencyPropertyChanged));
-
-    /// <summary>
-    /// The tool tip font style property
-    /// </summary>
-    public static readonly DependencyProperty TooltipFontStyleProperty =
-       DependencyProperty.Register(
-           nameof(TooltipFontStyle), typeof(FontStyle), typeof(CartesianChart),
-           new PropertyMetadata(FontStyle.Normal, OnDependencyPropertyChanged));
-
-    /// <summary>
-    /// The tool tip template property
-    /// </summary>
-    public static readonly DependencyProperty TooltipTemplateProperty =
+    public static readonly DependencyProperty TooltipBackgroundPaintProperty =
         DependencyProperty.Register(
-            nameof(TooltipTemplate), typeof(DataTemplate), typeof(CartesianChart), new PropertyMetadata(null, OnDependencyPropertyChanged));
+            nameof(TooltipBackgroundPaint), typeof(IPaint<SkiaSharpDrawingContext>), typeof(CartesianChart),
+            new PropertyMetadata(LiveCharts.DefaultSettings.TooltipBackgroundPaint, OnDependencyPropertyChanged));
 
     /// <summary>
-    /// The legend font family property
+    /// The tooltip text paint property
     /// </summary>
-    public static readonly DependencyProperty LegendFontFamilyProperty =
-       DependencyProperty.Register(
-           nameof(LegendFontFamily), typeof(FontFamily), typeof(CartesianChart),
-           new PropertyMetadata(new FontFamily("Trebuchet MS"), OnDependencyPropertyChanged));
-
-    /// <summary>
-    /// The legend text color property
-    /// </summary>
-    public static readonly DependencyProperty LegendTextBrushProperty =
-       DependencyProperty.Register(
-           nameof(LegendTextBrush), typeof(Brush), typeof(CartesianChart),
-           new PropertyMetadata(new SolidColorBrush(Windows.UI.Color.FromArgb(255, 35, 35, 35)), OnDependencyPropertyChanged));
-
-    /// <summary>
-    /// The legend background property
-    /// </summary>
-    public static readonly DependencyProperty LegendBackgroundProperty =
-       DependencyProperty.Register(
-           nameof(LegendBackground), typeof(Brush), typeof(CartesianChart),
-           new PropertyMetadata(new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255)), OnDependencyPropertyChanged));
-
-    /// <summary>
-    /// The legend font size property
-    /// </summary>
-    public static readonly DependencyProperty LegendFontSizeProperty =
-       DependencyProperty.Register(
-           nameof(LegendFontSize), typeof(double), typeof(CartesianChart), new PropertyMetadata(13d, OnDependencyPropertyChanged));
-
-    /// <summary>
-    /// The legend font weight property
-    /// </summary>
-    public static readonly DependencyProperty LegendFontWeightProperty =
-       DependencyProperty.Register(
-           nameof(LegendFontWeight), typeof(FontWeight), typeof(CartesianChart),
-           new PropertyMetadata(FontWeights.Normal, OnDependencyPropertyChanged));
-
-    /// <summary>
-    /// The legend font stretch property
-    /// </summary>
-    public static readonly DependencyProperty LegendFontStretchProperty =
-       DependencyProperty.Register(
-           nameof(LegendFontStretch), typeof(FontStretch), typeof(CartesianChart),
-           new PropertyMetadata(FontStretch.Normal, OnDependencyPropertyChanged));
-
-    /// <summary>
-    /// The legend font style property
-    /// </summary>
-    public static readonly DependencyProperty LegendFontStyleProperty =
-       DependencyProperty.Register(
-           nameof(LegendFontStyle), typeof(FontStyle), typeof(CartesianChart),
-           new PropertyMetadata(FontStyle.Normal, OnDependencyPropertyChanged));
-
-    /// <summary>
-    /// The legend template property
-    /// </summary>
-    public static readonly DependencyProperty LegendTemplateProperty =
+    public static readonly DependencyProperty TooltipTextPaintProperty =
         DependencyProperty.Register(
-            nameof(LegendTemplate), typeof(DataTemplate), typeof(CartesianChart), new PropertyMetadata(null, OnDependencyPropertyChanged));
+            nameof(TooltipTextPaint), typeof(IPaint<SkiaSharpDrawingContext>), typeof(CartesianChart),
+            new PropertyMetadata(LiveCharts.DefaultSettings.TooltipTextPaint, OnDependencyPropertyChanged));
+
+    /// <summary>
+    /// The tooltip text size property
+    /// </summary>
+    public static readonly DependencyProperty TooltipTextSizeProperty =
+        DependencyProperty.Register(
+            nameof(TooltipTextSize), typeof(double?), typeof(CartesianChart),
+            new PropertyMetadata(LiveCharts.DefaultSettings.TooltipTextSize, OnDependencyPropertyChanged));
 
     /// <summary>
     /// The data pointer down command property
@@ -386,6 +326,13 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
     public static readonly DependencyProperty ChartPointPointerDownCommandProperty =
         DependencyProperty.Register(
             nameof(ChartPointPointerDownCommand), typeof(ICommand), typeof(CartesianChart), new PropertyMetadata(null, OnDependencyPropertyChanged));
+
+    /// <summary>
+    /// The visual elements pointer down command property
+    /// </summary>
+    public static readonly DependencyProperty VisualElementsPointerDownCommandProperty =
+        DependencyProperty.Register(
+            nameof(VisualElementsPointerDownCommand), typeof(ICommand), typeof(CartesianChart), new PropertyMetadata(null, OnDependencyPropertyChanged));
 
     #endregion
 
@@ -406,14 +353,12 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
     /// <inheritdoc cref="IChartView.ChartPointPointerDown" />
     public event ChartPointHandler? ChartPointPointerDown;
 
+    /// <inheritdoc cref="IChartView{TDrawingContext}.VisualElementsPointerDown"/>
+    public event VisualElementHandler<SkiaSharpDrawingContext>? VisualElementsPointerDown;
+
     #endregion
 
     #region properties
-
-    Grid IWinUIChart.LayoutGrid => grid;
-    ToolTip IWinUIChart.TooltipControl => tooltipControl;
-    FrameworkElement IWinUIChart.Canvas => motionCanvas;
-    FrameworkElement IWinUIChart.Legend => legend;
 
     /// <inheritdoc cref="IChartView.DesignerMode" />
     bool IChartView.DesignerMode => Windows.ApplicationModel.DesignMode.DesignModeEnabled;
@@ -459,6 +404,13 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
         set => SetValue(SyncContextProperty, value);
     }
 
+    /// <inheritdoc cref="IChartView{TDrawingContext}.Title" />
+    public VisualElement<SkiaSharpDrawingContext>? Title
+    {
+        get => (VisualElement<SkiaSharpDrawingContext>?)GetValue(TitleProperty);
+        set => SetValue(TitleProperty, value);
+    }
+
     /// <inheritdoc cref="ICartesianChartView{TDrawingContext}.Series" />
     public IEnumerable<ISeries> Series
     {
@@ -485,6 +437,13 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
     {
         get => (IEnumerable<Section<SkiaSharpDrawingContext>>)GetValue(SectionsProperty);
         set => SetValue(SectionsProperty, value);
+    }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.VisualElements" />
+    public IEnumerable<ChartElement<SkiaSharpDrawingContext>> VisualElements
+    {
+        get => (IEnumerable<ChartElement<SkiaSharpDrawingContext>>)GetValue(VisualElementsProperty);
+        set => SetValue(VisualElementsProperty, value);
     }
 
     /// <inheritdoc cref="ICartesianChartView{TDrawingContext}.DrawMarginFrame" />
@@ -560,24 +519,29 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
         set => SetValue(LegendPositionProperty, value);
     }
 
-    LegendPosition IChartView.LegendPosition
+    /// <inheritdoc cref="IChartView{TDrawingContext}.LegendBackgroundPaint" />
+    public IPaint<SkiaSharpDrawingContext>? LegendBackgroundPaint
     {
-        get => LegendPosition;
-        set => SetValue(LegendPositionProperty, value);
+        get => (IPaint<SkiaSharpDrawingContext>?)GetValue(LegendBackgroundPaintProperty);
+        set => SetValue(LegendBackgroundPaintProperty, value);
     }
 
-    /// <inheritdoc cref="IChartView.LegendOrientation" />
-    public LegendOrientation LegendOrientation
+    /// <inheritdoc cref="IChartView{TDrawingContext}.LegendTextPaint" />
+    public IPaint<SkiaSharpDrawingContext>? LegendTextPaint
     {
-        get => (LegendOrientation)GetValue(LegendOrientationProperty);
-        set => SetValue(LegendOrientationProperty, value);
+        get => (IPaint<SkiaSharpDrawingContext>?)GetValue(LegendTextPaintProperty);
+        set => SetValue(LegendTextPaintProperty, value);
     }
 
-    LegendOrientation IChartView.LegendOrientation
+    /// <inheritdoc cref="IChartView{TDrawingContext}.LegendTextSize" />
+    public double? LegendTextSize
     {
-        get => LegendOrientation;
-        set => SetValue(LegendOrientationProperty, value);
+        get => (double?)GetValue(LegendTextSizeProperty);
+        set => SetValue(LegendTextSizeProperty, value);
     }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.Legend" />
+    public IChartLegend<SkiaSharpDrawingContext>? Legend { get; set; } = new SKDefaultLegend();
 
     /// <inheritdoc cref="IChartView.TooltipPosition" />
     public TooltipPosition TooltipPosition
@@ -586,223 +550,35 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
         set => SetValue(TooltipPositionProperty, value);
     }
 
-    TooltipPosition IChartView.TooltipPosition
+    /// <inheritdoc cref="IChartView{TDrawingContext}.TooltipBackgroundPaint" />
+    public IPaint<SkiaSharpDrawingContext>? TooltipBackgroundPaint
     {
-        get => TooltipPosition;
-        set => SetValue(TooltipPositionProperty, value);
+        get => (IPaint<SkiaSharpDrawingContext>?)GetValue(TooltipBackgroundPaintProperty);
+        set => SetValue(TooltipBackgroundPaintProperty, value);
     }
 
-    /// <summary>
-    /// Gets or sets the tool tip template.
-    /// </summary>
-    /// <value>
-    /// The tool tip template.
-    /// </value>
-    public DataTemplate? TooltipTemplate
+    /// <inheritdoc cref="IChartView{TDrawingContext}.TooltipTextPaint" />
+    public IPaint<SkiaSharpDrawingContext>? TooltipTextPaint
     {
-        get => (DataTemplate?)GetValue(TooltipTemplateProperty);
-        set => SetValue(TooltipTemplateProperty, value);
+        get => (IPaint<SkiaSharpDrawingContext>?)GetValue(TooltipTextPaintProperty);
+        set => SetValue(TooltipTextPaintProperty, value);
     }
 
-    /// <summary>
-    /// Gets or sets the default tool tip background.
-    /// </summary>
-    /// <value>
-    /// The tool tip background.
-    /// </value>
-    public Brush TooltipBackground
+    /// <inheritdoc cref="IChartView{TDrawingContext}.TooltipTextSize" />
+    public double? TooltipTextSize
     {
-        get => (Brush)GetValue(TooltipBackgroundProperty);
-        set => SetValue(TooltipBackgroundProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the default tool tip font family.
-    /// </summary>
-    /// <value>
-    /// The tool tip font family.
-    /// </value>
-    public FontFamily TooltipFontFamily
-    {
-        get => (FontFamily)GetValue(TooltipFontFamilyProperty);
-        set => SetValue(TooltipFontFamilyProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the default color of the tool tip text.
-    /// </summary>
-    /// <value>
-    /// The color of the tool tip text.
-    /// </value>
-    public Brush TooltipTextBrush
-    {
-        get => (SolidColorBrush)GetValue(TooltipTextBrushProperty);
-        set => SetValue(TooltipTextBrushProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the default size of the tool tip font.
-    /// </summary>
-    /// <value>
-    /// The size of the tool tip font.
-    /// </value>
-    public double TooltipFontSize
-    {
-        get => (double)GetValue(TooltipFontSizeProperty);
-        set => SetValue(TooltipFontSizeProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the default tool tip font weight.
-    /// </summary>
-    /// <value>
-    /// The tool tip font weight.
-    /// </value>
-    public FontWeight TooltipFontWeight
-    {
-        get => (FontWeight)GetValue(TooltipFontWeightProperty);
-        set => SetValue(TooltipFontWeightProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the default tool tip font stretch.
-    /// </summary>
-    /// <value>
-    /// The tool tip font stretch.
-    /// </value>
-    public FontStretch TooltipFontStretch
-    {
-        get => (FontStretch)GetValue(TooltipFontStretchProperty);
-        set => SetValue(TooltipFontStretchProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the default tool tip font style.
-    /// </summary>
-    /// <value>
-    /// The tool tip font style.
-    /// </value>
-    public FontStyle TooltipFontStyle
-    {
-        get => (FontStyle)GetValue(TooltipFontStyleProperty);
-        set => SetValue(TooltipFontStyleProperty, value);
+        get => (double?)GetValue(TooltipTextSizeProperty);
+        set => SetValue(TooltipTextSizeProperty, value);
     }
 
     /// <inheritdoc cref="IChartView{TDrawingContext}.Tooltip" />
-    public IChartTooltip<SkiaSharpDrawingContext>? Tooltip => tooltip;
-
-    /// <summary>
-    /// Gets or sets the legend template.
-    /// </summary>
-    /// <value>
-    /// The legend template.
-    /// </value>
-    public DataTemplate? LegendTemplate
-    {
-        get => (DataTemplate?)GetValue(LegendTemplateProperty);
-        set => SetValue(LegendTemplateProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the default legend font family.
-    /// </summary>
-    /// <value>
-    /// The legend font family.
-    /// </value>
-    public FontFamily LegendFontFamily
-    {
-        get => (FontFamily)GetValue(LegendFontFamilyProperty);
-        set => SetValue(LegendFontFamilyProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the default color of the legend text.
-    /// </summary>
-    /// <value>
-    /// The color of the legend text.
-    /// </value>
-    public Brush LegendTextBrush
-    {
-        get => (SolidColorBrush)GetValue(LegendTextBrushProperty);
-        set => SetValue(LegendTextBrushProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the legend background.
-    /// </summary>
-    /// <value>
-    /// The legend t background.
-    /// </value>
-    public Brush LegendBackground
-    {
-        get => (SolidColorBrush)GetValue(LegendBackgroundProperty);
-        set => SetValue(LegendBackgroundProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the default size of the legend font.
-    /// </summary>
-    /// <value>
-    /// The size of the legend font.
-    /// </value>
-    public double LegendFontSize
-    {
-        get => (double)GetValue(LegendFontSizeProperty);
-        set => SetValue(LegendFontSizeProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the default legend font weight.
-    /// </summary>
-    /// <value>
-    /// The legend font weight.
-    /// </value>
-    public FontWeight LegendFontWeight
-    {
-        get => (FontWeight)GetValue(LegendFontWeightProperty);
-        set => SetValue(LegendFontWeightProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the default legend font stretch.
-    /// </summary>
-    /// <value>
-    /// The legend font stretch.
-    /// </value>
-    public FontStretch LegendFontStretch
-    {
-        get => (FontStretch)GetValue(LegendFontStretchProperty);
-        set => SetValue(LegendFontStretchProperty, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the default legend font style.
-    /// </summary>
-    /// <value>
-    /// The legend font style.
-    /// </value>
-    public FontStyle LegendFontStyle
-    {
-        get => (FontStyle)GetValue(LegendFontStyleProperty);
-        set => SetValue(LegendFontStyleProperty, value);
-    }
-
-    /// <inheritdoc cref="IChartView{TDrawingContext}.Legend" />
-    public IChartLegend<SkiaSharpDrawingContext>? Legend => legend;
+    public IChartTooltip<SkiaSharpDrawingContext>? Tooltip { get; set; } = new SKDefaultTooltip();
 
     /// <inheritdoc cref="IChartView{TDrawingContext}.AutoUpdateEnabled" />
     public bool AutoUpdateEnabled { get; set; } = true;
 
     /// <inheritdoc cref="IChartView.UpdaterThrottler" />
-    public TimeSpan UpdaterThrottler
-    {
-        get => _core?.UpdaterThrottler ?? throw new Exception("core not set yet.");
-        set
-        {
-            if (_core == null) throw new Exception("core not set yet.");
-            _core.UpdaterThrottler = value;
-        }
-    }
+    public TimeSpan UpdaterThrottler { get; set; } = LiveCharts.DefaultSettings.UpdateThrottlingTimeout;
 
     /// <summary>
     /// Gets or sets a command to execute when the pointer goes down on a data or data points.
@@ -822,9 +598,19 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
         set => SetValue(ChartPointPointerDownCommandProperty, value);
     }
 
+    /// <summary>
+    /// Gets or sets a command to execute when the pointer goes down on a chart point.
+    /// </summary>
+    public ICommand? VisualElementsPointerDownCommand
+    {
+        get => (ICommand?)GetValue(VisualElementsPointerDownCommandProperty);
+        set => SetValue(VisualElementsPointerDownCommandProperty, value);
+    }
+
     #endregion
 
     /// <inheritdoc cref="ICartesianChartView{TDrawingContext}.ScaleUIPoint(LvcPoint, int, int)" />
+    [Obsolete("Use the ScalePixelsToData method instead.")]
     public double[] ScaleUIPoint(LvcPoint point, int xAxisIndex = 0, int yAxisIndex = 0)
     {
         if (_core == null) throw new Exception("core not found");
@@ -832,36 +618,59 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
         return cartesianCore.ScaleUIPoint(point, xAxisIndex, yAxisIndex);
     }
 
+    /// <inheritdoc cref="ICartesianChartView{TDrawingContext}.ScalePixelsToData(LvcPointD, int, int)"/>
+    public LvcPointD ScalePixelsToData(LvcPointD point, int xAxisIndex = 0, int yAxisIndex = 0)
+    {
+        if (_core is not CartesianChart<SkiaSharpDrawingContext> cc) throw new Exception("core not found");
+        var xScaler = new Scaler(cc.DrawMarginLocation, cc.DrawMarginSize, cc.XAxes[xAxisIndex]);
+        var yScaler = new Scaler(cc.DrawMarginLocation, cc.DrawMarginSize, cc.YAxes[yAxisIndex]);
+
+        return new LvcPointD { X = xScaler.ToChartValues(point.X), Y = yScaler.ToChartValues(point.Y) };
+    }
+
+    /// <inheritdoc cref="ICartesianChartView{TDrawingContext}.ScaleDataToPixels(LvcPointD, int, int)"/>
+    public LvcPointD ScaleDataToPixels(LvcPointD point, int xAxisIndex = 0, int yAxisIndex = 0)
+    {
+        if (_core is not CartesianChart<SkiaSharpDrawingContext> cc) throw new Exception("core not found");
+
+        var xScaler = new Scaler(cc.DrawMarginLocation, cc.DrawMarginSize, cc.XAxes[xAxisIndex]);
+        var yScaler = new Scaler(cc.DrawMarginLocation, cc.DrawMarginSize, cc.YAxes[yAxisIndex]);
+
+        return new LvcPointD { X = xScaler.ToPixels(point.X), Y = yScaler.ToPixels(point.Y) };
+    }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.GetPointsAt(LvcPoint, TooltipFindingStrategy)"/>
+    public IEnumerable<ChartPoint> GetPointsAt(LvcPoint point, TooltipFindingStrategy strategy = TooltipFindingStrategy.Automatic)
+    {
+        if (_core is not CartesianChart<SkiaSharpDrawingContext> cc) throw new Exception("core not found");
+
+        if (strategy == TooltipFindingStrategy.Automatic)
+            strategy = cc.Series.GetTooltipFindingStrategy();
+
+        return cc.Series.SelectMany(series => series.FindHitPoints(cc, point, strategy));
+    }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.GetVisualsAt(LvcPoint)"/>
+    public IEnumerable<VisualElement<SkiaSharpDrawingContext>> GetVisualsAt(LvcPoint point)
+    {
+        return _core is not CartesianChart<SkiaSharpDrawingContext> cc
+            ? throw new Exception("core not found")
+            : cc.VisualElements.SelectMany(visual => ((VisualElement<SkiaSharpDrawingContext>)visual).IsHitBy(_core, point));
+    }
+
     /// <inheritdoc cref="IChartView{TDrawingContext}.ShowTooltip(IEnumerable{ChartPoint})"/>
     public void ShowTooltip(IEnumerable<ChartPoint> points)
     {
-        if (tooltip == null || _core == null) return;
-
-        ((IChartTooltip<SkiaSharpDrawingContext>)tooltip).Show(points, _core);
+        if (Tooltip == null || _core == null) return;
+        Tooltip.Show(points, _core);
     }
 
     /// <inheritdoc cref="IChartView{TDrawingContext}.HideTooltip"/>
     public void HideTooltip()
     {
-        if (tooltip == null || _core == null) return;
-
+        if (Tooltip == null || _core == null) return;
         _core.ClearTooltipData();
-        ((IChartTooltip<SkiaSharpDrawingContext>)tooltip).Hide();
-    }
-
-    /// <inheritdoc cref="IWinUIChart.GetCanvasPosition"/>
-    Windows.Foundation.Point IWinUIChart.GetCanvasPosition()
-    {
-        return _canvas is null
-            ? throw new Exception("Canvas not found")
-            : _canvas.TransformToVisual(this).TransformPoint(new Windows.Foundation.Point(0, 0));
-    }
-
-    /// <inheritdoc cref="IChartView.SetTooltipStyle(LvcColor, LvcColor)"/>
-    public void SetTooltipStyle(LvcColor background, LvcColor textColor)
-    {
-        TooltipBackground = new SolidColorBrush(Windows.UI.Color.FromArgb(background.A, background.R, background.G, background.B));
-        TooltipTextBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(textColor.A, textColor.R, textColor.G, textColor.B));
+        Tooltip.Hide();
     }
 
     void IChartView.InvokeOnUIThread(Action action)
@@ -872,21 +681,25 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        if (!LiveCharts.IsConfigured) LiveCharts.Configure(LiveChartsSkiaSharp.DefaultPlatformBuilder);
-
-        var stylesBuilder = LiveCharts.CurrentSettings.GetTheme<SkiaSharpDrawingContext>();
-        var initializer = stylesBuilder.GetVisualsInitializer();
-        if (stylesBuilder.CurrentColors is null || stylesBuilder.CurrentColors.Length == 0)
-            throw new Exception("Default colors are not valid");
-        initializer.ApplyStyleToChart(this);
+        if (!LiveCharts.IsConfigured) LiveCharts.Configure(config => config.UseDefaults());
 
         var canvas = (MotionCanvas)FindName("motionCanvas");
         _canvas = canvas;
 
         if (_core is null)
         {
+            var zoomingSection = new Drawing.Geometries.RectangleGeometry();
+            var zoomingSectionPaint = new SolidColorPaint
+            {
+                IsFill = true,
+                Color = new SkiaSharp.SKColor(33, 150, 243, 50),
+                ZIndex = int.MaxValue
+            };
+            zoomingSectionPaint.AddGeometryToPaintTask(canvas.CanvasCore, zoomingSection);
+            canvas.CanvasCore.AddDrawableTask(zoomingSectionPaint);
+
             _core = new CartesianChart<SkiaSharpDrawingContext>(
-                this, LiveChartsSkiaSharp.DefaultPlatformBuilder, canvas.CanvasCore);
+                this, config => config.UseDefaults(), canvas.CanvasCore, zoomingSection);
             //_legend = Template.FindName("legend", this) as IChartLegend<SkiaSharpDrawingContext>;
             //_tooltip = Template.FindName("tooltip", this) as IChartTooltip<SkiaSharpDrawingContext>;
             if (SyncContext != null)
@@ -911,14 +724,12 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
 
     private void OnDeepCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (_core == null || (sender is IStopNPC stop && !stop.IsNotifyingChanges)) return;
-        _core.Update();
+        _core?.Update();
     }
 
     private void OnDeepCollectionPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_core == null || (sender is IStopNPC stop && !stop.IsNotifyingChanges)) return;
-        _core.Update();
+        _core?.Update();
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
@@ -957,15 +768,30 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
     private void OnPointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
         var p = e.GetCurrentPoint(this);
-        _core?.InvokePointerUp(new LvcPoint((float)p.Position.X, (float)p.Position.Y));
+
+        var isRight = false;
+        if (e.Pointer.PointerDeviceType == PointerDeviceType.Mouse)
+        {
+            var properties = e.GetCurrentPoint(this).Properties;
+            isRight = properties.IsRightButtonPressed;
+        }
+
+        _core?.InvokePointerUp(new LvcPoint((float)p.Position.X, (float)p.Position.Y), isRight);
         ReleasePointerCapture(e.Pointer);
     }
 
     private void OnPointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
+        if (e.KeyModifiers > 0) return;
         _ = CapturePointer(e.Pointer);
         var p = e.GetCurrentPoint(this);
-        _core?.InvokePointerDown(new LvcPoint((float)p.Position.X, (float)p.Position.Y));
+        var isRight = false;
+        if (e.Pointer.PointerDeviceType == PointerDeviceType.Mouse)
+        {
+            var properties = e.GetCurrentPoint(this).Properties;
+            isRight = properties.IsRightButtonPressed;
+        }
+        _core?.InvokePointerDown(new LvcPoint((float)p.Position.X, (float)p.Position.Y), isRight);
     }
 
     private void OnWheelChanged(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
@@ -1001,6 +827,16 @@ public sealed partial class CartesianChart : UserControl, ICartesianChartView<Sk
         var closest = points.FindClosestTo(pointer);
         ChartPointPointerDown?.Invoke(this, closest);
         if (ChartPointPointerDownCommand is not null && ChartPointPointerDownCommand.CanExecute(closest)) ChartPointPointerDownCommand.Execute(closest);
+    }
+
+    void IChartView<SkiaSharpDrawingContext>.OnVisualElementPointerDown(
+        IEnumerable<VisualElement<SkiaSharpDrawingContext>> visualElements, LvcPoint pointer)
+    {
+        var args = new VisualElementsEventArgs<SkiaSharpDrawingContext>(visualElements, pointer);
+
+        VisualElementsPointerDown?.Invoke(this, args);
+        if (VisualElementsPointerDownCommand is not null && VisualElementsPointerDownCommand.CanExecute(args))
+            VisualElementsPointerDownCommand.Execute(args);
     }
 
     void IChartView.Invalidate()

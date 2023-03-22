@@ -23,29 +23,64 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel.Sketches;
 using LiveChartsCore.Measure;
+using LiveChartsCore.VisualElements;
 
 namespace LiveChartsCore.Kernel;
 
 /// <summary>
-/// LiveCharts kerner extensions.
+/// LiveCharts kernel extensions.
 /// </summary>
 public static class Extensions
 {
     private const double Cf = 3d;
 
+    private static readonly Type s_nullableType = typeof(Nullable<>);
+
     /// <summary>
-    /// Returns the left, top coordinate of the tooltip based on the found points, the position and the tooltip size.
+    /// Calculates the tooltip location.
     /// </summary>
-    /// <param name="foundPoints"></param>
-    /// <param name="position"></param>
-    /// <param name="tooltipSize"></param>
-    /// <param name="chartSize"></param>
+    /// <typeparam name="TDrawingContext"></typeparam>
+    /// <param name="foundPoints">The points.</param>
+    /// <param name="tooltipSize">The tooltip size.</param>
+    /// <param name="chart">The chart.</param>
     /// <returns></returns>
-    public static LvcPoint? GetCartesianTooltipLocation(
-        this IEnumerable<ChartPoint> foundPoints, TooltipPosition position, LvcSize tooltipSize, LvcSize chartSize)
+    /// <exception cref="Exception"></exception>
+    public static LvcPoint GetTooltipLocation<TDrawingContext>(
+        this IEnumerable<ChartPoint> foundPoints,
+        LvcSize tooltipSize,
+        Chart<TDrawingContext> chart)
+            where TDrawingContext : DrawingContext
+    {
+        LvcPoint? location = null;
+
+        if (chart is CartesianChart<TDrawingContext> or PolarChart<TDrawingContext>)
+            location = _getCartesianTooltipLocation(foundPoints, chart.TooltipPosition, tooltipSize, chart.DrawMarginSize);
+        if (chart is PieChart<TDrawingContext>)
+            location = _getPieTooltipLocation(foundPoints, tooltipSize);
+
+        if (location is null) throw new Exception("location not supported");
+
+        var chartSize = chart.DrawMarginSize;
+
+        var x = location.Value.X;
+        var y = location.Value.Y;
+        var w = chartSize.Width;
+        var h = chartSize.Height;
+
+        if (x + tooltipSize.Width > w) x = w - tooltipSize.Width;
+        if (x < 0) x = 0;
+        if (y < 0) y = 0;
+        if (y + tooltipSize.Height > h) y = h - tooltipSize.Height;
+
+        return new LvcPoint(x, y);
+    }
+
+    private static LvcPoint? _getCartesianTooltipLocation(
+        IEnumerable<ChartPoint> foundPoints, TooltipPosition position, LvcSize tooltipSize, LvcSize chartSize)
     {
         var count = 0f;
 
@@ -78,16 +113,8 @@ public static class Extensions
             _ => new LvcPoint(),
         };
     }
-
-    /// <summary>
-    ///  Returns the left, top coordinate of the tooltip based on the found points, the position and the tooltip size.
-    /// </summary>
-    /// <param name="foundPoints">The found points.</param>
-    /// <param name="position">The position.</param>
-    /// <param name="tooltipSize">Size of the tooltip.</param>
-    /// <returns></returns>
-    public static LvcPoint? GetPieTooltipLocation(
-        this IEnumerable<ChartPoint> foundPoints, TooltipPosition position, LvcSize tooltipSize)
+    private static LvcPoint? _getPieTooltipLocation(
+        IEnumerable<ChartPoint> foundPoints, LvcSize tooltipSize)
     {
         var placementContext = new TooltipPlacementContext();
         var found = false;
@@ -110,46 +137,36 @@ public static class Extensions
     /// </summary>
     /// <param name="axis">The axis.</param>
     /// <param name="controlSize">Size of the control.</param>
-    /// <returns></returns>
-    public static AxisTick GetTick(this ICartesianAxis axis, LvcSize controlSize)
-    {
-        return GetTick(axis, controlSize, axis.VisibleDataBounds);
-    }
-
-    /// <summary>
-    /// Gets the tick.
-    /// </summary>
-    /// <param name="axis">The axis.</param>
-    /// <param name="chart">The chart.</param>
-    /// <returns></returns>
-    public static AxisTick GetTick<TDrawingContext>(this IPolarAxis axis, PolarChart<TDrawingContext> chart)
-        where TDrawingContext : DrawingContext
-    {
-        return GetTick(axis, chart, axis.VisibleDataBounds);
-    }
-
-    /// <summary>
-    /// Gets the tick.
-    /// </summary>
-    /// <param name="axis">The axis.</param>
-    /// <param name="controlSize">Size of the control.</param>
     /// <param name="bounds">The bounds.</param>
+    /// <param name="maxLabelSize">The max label size.</param>
     /// <returns></returns>
-    public static AxisTick GetTick(this ICartesianAxis axis, LvcSize controlSize, Bounds bounds)
+    public static AxisTick GetTick(this ICartesianAxis axis, LvcSize controlSize, Bounds? bounds = null, LvcSize? maxLabelSize = null)
     {
+        bounds ??= axis.VisibleDataBounds;
+
+        var w = (maxLabelSize?.Width ?? 0d) * 0.60;
+        if (w < 20 * Cf) w = 20 * Cf;
+
+        var h = maxLabelSize?.Height ?? 0d;
+        if (h < 12 * Cf) h = 12 * Cf;
+
         var max = axis.MaxLimit is null ? bounds.Max : axis.MaxLimit.Value;
         var min = axis.MinLimit is null ? bounds.Min : axis.MinLimit.Value;
 
         var range = max - min;
+        if (range == 0) range = min;
+
         var separations = axis.Orientation == AxisOrientation.Y
-            ? Math.Round(controlSize.Height / (12 * Cf), 0)
-            : Math.Round(controlSize.Width / (20 * Cf), 0);
+            ? Math.Round(controlSize.Height / h, 0)
+            : Math.Round(controlSize.Width / w, 0);
+
         var minimum = range / separations;
 
         var magnitude = Math.Pow(10, Math.Floor(Math.Log(minimum) / Math.Log(10)));
 
         var residual = minimum / magnitude;
         var tick = residual > 5 ? 10 * magnitude : residual > 2 ? 5 * magnitude : residual > 1 ? 2 * magnitude : magnitude;
+
         return new AxisTick { Value = tick, Magnitude = magnitude };
     }
 
@@ -160,9 +177,11 @@ public static class Extensions
     /// <param name="chart">The chart.</param>
     /// <param name="bounds">The bounds.</param>
     /// <returns></returns> 
-    public static AxisTick GetTick<TDrawingContext>(this IPolarAxis axis, PolarChart<TDrawingContext> chart, Bounds bounds)
+    public static AxisTick GetTick<TDrawingContext>(this IPolarAxis axis, PolarChart<TDrawingContext> chart, Bounds? bounds = null)
         where TDrawingContext : DrawingContext
     {
+        bounds ??= axis.VisibleDataBounds;
+
         var max = axis.MaxLimit is null ? bounds.Max : axis.MaxLimit.Value;
         var min = axis.MinLimit is null ? bounds.Min : axis.MinLimit.Value;
 
@@ -299,26 +318,65 @@ public static class Extensions
     }
 
     /// <summary>
-    /// Finds the closest point to the specified location in UI coordinates.
+    /// Finds the closest point to the specified location [in pixels].
     /// </summary>
-    /// <param name="points">The points to look in to.</param>bcv 
-    /// <param name="point">The location.</param>
+    /// <param name="points">The points to look in to.</param>
+    /// <param name="point">The location in pixels.</param>
     /// <returns></returns>
-    public static ChartPoint FindClosestTo(this IEnumerable<ChartPoint> points, LvcPoint point)
+    public static ChartPoint<TModel, TVisual, TLabel>? FindClosestTo<TModel, TVisual, TLabel>(
+        this IEnumerable<ChartPoint> points, LvcPoint point)
     {
-        return _findClosestTo(points, point);
+        var closest = FindClosestTo(points, point);
+        return closest is null
+            ? null
+            : new ChartPoint<TModel, TVisual, TLabel>(closest);
     }
 
     /// <summary>
-    /// Finds the closest point to the specified location in UI coordinates.
+    /// Finds the closest point to the specified location [in pixels].
     /// </summary>
-    /// <param name="points">The points to look in to.</param>bcv 
-    /// <param name="point">The location.</param>
+    /// <param name="points">The points to look into.</param>
+    /// <param name="point">The location in pixels.</param>
     /// <returns></returns>
-    public static ChartPoint<TModel, TVisual, TLabel> FindClosestTo<TModel, TVisual, TLabel>(
-        this IEnumerable<ChartPoint> points, LvcPoint point)
+    public static ChartPoint? FindClosestTo(this IEnumerable<ChartPoint> points, LvcPoint point)
     {
-        return new ChartPoint<TModel, TVisual, TLabel>(_findClosestTo(points, point));
+        var fp = new LvcPoint((float)point.X, (float)point.Y);
+
+        return points
+            .Select(p => new
+            {
+                distance = p.DistanceTo(fp),
+                point = p
+            })
+            .OrderBy(p => p.distance)
+            .FirstOrDefault()?.point;
+    }
+
+    /// <summary>
+    /// Finds the closest visual to the specified location [in pixels].
+    /// </summary>
+    /// <typeparam name="T">The type of the drawing context.</typeparam>
+    /// <param name="source">The visuals to look into.</param>
+    /// <param name="point">The location in pixels.</param>
+    /// <returns></returns>
+    public static VisualElement<T>? FindClosestTo<T>(this IEnumerable<VisualElement<T>> source, LvcPoint point)
+        where T : DrawingContext
+    {
+        return source.Select(visual =>
+        {
+            var location = visual.GetTargetLocation();
+            var size = visual.GetTargetSize();
+
+            return new
+            {
+                distance = Math.Sqrt(
+                    Math.Pow(point.X - (location.X + size.Width * 0.5), 2) +
+                    Math.Pow(point.Y - (location.Y + size.Height * 0.5), 2)),
+                visual
+            };
+        })
+        .OrderBy(p => p.distance)
+        .FirstOrDefault()?.visual;
     }
 
     /// <summary>
@@ -342,7 +400,7 @@ public static class Extensions
     /// <param name="axis"></param>
     /// <param name="chart"></param>
     /// <returns></returns>
-    public static Scaler? GetActualScalerScaler<TDrawingContext>(this ICartesianAxis axis, CartesianChart<TDrawingContext> chart)
+    public static Scaler? GetActualScaler<TDrawingContext>(this ICartesianAxis axis, CartesianChart<TDrawingContext> chart)
         where TDrawingContext : DrawingContext
     {
         return !axis.ActualBounds.HasPreviousState
@@ -359,7 +417,7 @@ public static class Extensions
     }
 
     /// <summary>
-    /// Returns an enumeration with only the fisrt element.
+    /// Returns an enumeration with only the first element.
     /// </summary>
     /// <typeparam name="T">The source type.</typeparam>
     /// <typeparam name="T1">The target type.</typeparam>
@@ -375,10 +433,142 @@ public static class Extensions
         }
     }
 
-    private static ChartPoint _findClosestTo(this IEnumerable<ChartPoint> points, LvcPoint point)
+    /// <summary>
+    /// Gets the point for the given view.
+    /// </summary>
+    /// <param name="dictionary">The points dictionary.</param>
+    /// <param name="view">The view.</param>
+    /// <returns></returns>
+    public static ChartPoint? GetPointForView(this Dictionary<IChartView, ChartPoint> dictionary, IChartView view)
     {
-        var o = points.Select(p => new { distance = p.DistanceTo(point), point = p }).OrderBy(p => p.distance).ToArray();
+        return dictionary.TryGetValue(view, out var point) ? point : null;
+    }
 
-        return o.First().point; //points.OrderBy(p => p.DistanceTo(point)).ToArray().First();
+    /// <summary>
+    /// Splits an enumerable of chartpoints by each null gap.
+    /// </summary>
+    /// <param name="points">The points.</param>
+    /// <param name="onDeleteNullPoint">Called when a point was deleted.</param>
+    /// <returns></returns>
+    public static IEnumerable<IEnumerable<ChartPoint>> SplitByNullGaps(
+        this IEnumerable<ChartPoint> points,
+        Action<ChartPoint> onDeleteNullPoint)
+    {
+        using var builder = new GapsBuilder(points.GetEnumerator());
+        while (!builder.Finished) yield return YieldReturnUntilNextNullChartPoint(builder, onDeleteNullPoint);
+    }
+
+    /// <summary>
+    /// Builds a enumerator with the necessary data to build an Spline.
+    /// </summary>
+    /// <param name="source"></param>
+    /// <returns></returns>
+    internal static IEnumerable<SplineData> AsSplineData(this IEnumerable<ChartPoint> source)
+    {
+        using var e = source.Where(x => !x.IsEmpty).GetEnumerator();
+
+        if (!e.MoveNext()) yield break;
+        var data = new SplineData(e.Current);
+
+        if (!e.MoveNext())
+        {
+            yield return data;
+            yield break;
+        }
+
+        data.GoNext(e.Current);
+
+        while (e.MoveNext())
+        {
+            yield return data;
+            data.IsFirst = false;
+            data.GoNext(e.Current);
+        }
+
+        data.IsFirst = false;
+        yield return data;
+
+        data.GoNext(data.Next);
+        yield return data;
+    }
+
+    /// <summary>
+    /// Returns <see langword="true" /> when the given type is either a reference type or of type <see cref="Nullable{T}"/>.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool CanBeNull(Type type)
+    {
+        return !type.IsValueType || (type.IsGenericType && type.GetGenericTypeDefinition() == s_nullableType);
+    }
+
+    private static IEnumerable<ChartPoint> YieldReturnUntilNextNullChartPoint(
+        GapsBuilder builder,
+        Action<ChartPoint> onDeleteNullPoint)
+    {
+        while (builder.Enumerator.MoveNext())
+        {
+            if (builder.Enumerator.Current.IsEmpty)
+            {
+                var wasEmpty = builder.IsEmpty;
+                builder.IsEmpty = true;
+                onDeleteNullPoint(builder.Enumerator.Current);
+                if (!wasEmpty) yield break; // if there are no points then do not return an empty enumerable...
+            }
+            else
+            {
+                yield return builder.Enumerator.Current;
+                builder.IsEmpty = false;
+            }
+        }
+
+        builder.Finished = true;
+    }
+
+    private class GapsBuilder : IDisposable
+    {
+        public GapsBuilder(IEnumerator<ChartPoint> enumerator)
+        {
+            Enumerator = enumerator;
+        }
+
+        public IEnumerator<ChartPoint> Enumerator { get; }
+
+        public bool IsEmpty { get; set; } = true;
+
+        public bool Finished { get; set; } = false;
+
+        public void Dispose()
+        {
+            Enumerator.Dispose();
+        }
+    }
+
+    internal class SplineData
+    {
+        public SplineData(ChartPoint start)
+        {
+            Previous = start;
+            Current = start;
+            Next = start;
+            AfterNext = start;
+        }
+
+        public ChartPoint Previous { get; set; }
+
+        public ChartPoint Current { get; set; }
+
+        public ChartPoint Next { get; set; }
+
+        public ChartPoint AfterNext { get; set; }
+
+        public bool IsFirst { get; set; } = true;
+
+        public void GoNext(ChartPoint point)
+        {
+            Previous = Current;
+            Current = Next;
+            Next = AfterNext;
+            AfterNext = point;
+        }
     }
 }

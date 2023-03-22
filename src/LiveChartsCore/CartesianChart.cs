@@ -40,17 +40,15 @@ namespace LiveChartsCore;
 public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
     where TDrawingContext : DrawingContext
 {
-    internal readonly HashSet<ISeries> _everMeasuredSeries = new();
-    internal readonly HashSet<IPlane<TDrawingContext>> _everMeasuredAxes = new();
-    internal readonly HashSet<Section<TDrawingContext>> _everMeasuredSections = new();
     private readonly ICartesianChartView<TDrawingContext> _chartView;
+    private readonly ISizedGeometry<TDrawingContext> _zoomingSection;
     private int _nextSeries = 0;
     private double _zoomingSpeed = 0;
-    private readonly bool _requiresLegendMeasureAlways = false;
     private ZoomAndPanMode _zoomMode;
     private DrawMarginFrame<TDrawingContext>? _previousDrawMarginFrame;
     private const double MaxAxisBound = 0.05;
     private const double MaxAxisActiveBound = 0.15;
+    private HashSet<ICartesianAxis<TDrawingContext>> _crosshair = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CartesianChart{TDrawingContext}"/> class.
@@ -58,16 +56,20 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
     /// <param name="view">The view.</param>
     /// <param name="defaultPlatformConfig">The default platform configuration.</param>
     /// <param name="canvas">The canvas.</param>
-    /// <param name="requiresLegendMeasureAlways">Forces the legends to redraw with every measure request.</param>
+    /// <param name="zoomingSection">The zooming section.</param>
     public CartesianChart(
         ICartesianChartView<TDrawingContext> view,
         Action<LiveChartsSettings> defaultPlatformConfig,
         MotionCanvas<TDrawingContext> canvas,
-        bool requiresLegendMeasureAlways = false)
+        ISizedGeometry<TDrawingContext>? zoomingSection)
         : base(canvas, defaultPlatformConfig, view)
     {
         _chartView = view;
-        _requiresLegendMeasureAlways = requiresLegendMeasureAlways;
+        _zoomingSection = zoomingSection ?? throw new Exception($"{nameof(zoomingSection)} is required.");
+        _zoomingSection.X = -1;
+        _zoomingSection.Y = -1;
+        _zoomingSection.Width = 0;
+        _zoomingSection.Height = 0;
     }
 
     /// <summary>
@@ -76,7 +78,7 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
     /// <value>
     /// The x axes.
     /// </value>
-    public ICartesianAxis[] XAxes { get; private set; } = Array.Empty<ICartesianAxis>();
+    public ICartesianAxis<TDrawingContext>[] XAxes { get; private set; } = Array.Empty<ICartesianAxis<TDrawingContext>>();
 
     /// <summary>
     /// Gets the y axes.
@@ -84,10 +86,10 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
     /// <value>
     /// The y axes.
     /// </value>
-    public ICartesianAxis[] YAxes { get; private set; } = Array.Empty<ICartesianAxis>();
+    public ICartesianAxis<TDrawingContext>[] YAxes { get; private set; } = Array.Empty<ICartesianAxis<TDrawingContext>>();
 
     /// <summary>
-    /// Gets the series.
+    /// Gets the visible series.
     /// </summary>
     /// <value>
     /// The series.
@@ -140,7 +142,7 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
 
         return ChartSeries
             .Where(series => series.IsHoverable)
-            .SelectMany(series => series.FindHoveredPoints(this, pointerPosition, actualStrategy));
+            .SelectMany(series => series.FindHitPoints(this, pointerPosition, actualStrategy));
     }
 
     /// <summary>
@@ -227,7 +229,8 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
                     maxt = max + ld * 0.5 * dir;
                 }
 
-                if (maxt - mint < xi.DataBounds.MinDelta * 5) return;
+                var minZoomDelta = xi.MinZoomDelta ?? xi.DataBounds.MinDelta * 3;
+                if (direction == ZoomDirection.ZoomIn && maxt - mint < minZoomDelta) continue;
 
                 var xm = (max - min) * (isActive ? MaxAxisActiveBound : MaxAxisBound);
                 if (maxt > xi.DataBounds.Max && direction == ZoomDirection.ZoomOut) maxt = xi.DataBounds.Max + xm;
@@ -281,7 +284,8 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
                     maxt = max + ld * 0.5 * dir;
                 }
 
-                if (maxt - mint < yi.DataBounds.MinDelta * 5) return;
+                var minZoomDelta = yi.MinZoomDelta ?? yi.DataBounds.MinDelta * 3;
+                if (direction == ZoomDirection.ZoomIn && maxt - mint < minZoomDelta) continue;
 
                 var ym = (max - min) * (isActive ? MaxAxisActiveBound : MaxAxisBound);
                 if (maxt > yi.DataBounds.Max && direction == ZoomDirection.ZoomOut) maxt = yi.DataBounds.Max + ym;
@@ -393,10 +397,10 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
 
         InvokeOnMeasuring();
 
-        if (preserveFirstDraw)
+        if (_preserveFirstDraw)
         {
             IsFirstDraw = true;
-            preserveFirstDraw = false;
+            _preserveFirstDraw = false;
         }
 
         MeasureWork = new object();
@@ -406,19 +410,15 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
         var viewDrawMargin = _chartView.DrawMargin;
         ControlSize = _chartView.ControlSize;
 
-        YAxes = _chartView.YAxes.Cast<ICartesianAxis>().Select(x => x).ToArray();
-        XAxes = _chartView.XAxes.Cast<ICartesianAxis>().Select(x => x).ToArray();
+        YAxes = _chartView.YAxes.Cast<ICartesianAxis<TDrawingContext>>().Select(x => x).ToArray();
+        XAxes = _chartView.XAxes.Cast<ICartesianAxis<TDrawingContext>>().Select(x => x).ToArray();
 
         _zoomingSpeed = _chartView.ZoomingSpeed;
         _zoomMode = _chartView.ZoomMode;
 
-        var theme = LiveCharts.CurrentSettings.GetTheme<TDrawingContext>();
-        if (theme.CurrentColors is null || theme.CurrentColors.Length == 0)
-            throw new Exception("Default colors are not valid");
-        var forceApply = ThemeId != LiveCharts.CurrentSettings.ThemeId && !IsFirstDraw;
+        var theme = LiveCharts.DefaultSettings.GetTheme<TDrawingContext>();
 
         LegendPosition = _chartView.LegendPosition;
-        LegendOrientation = _chartView.LegendOrientation;
         Legend = _chartView.Legend;
 
         TooltipPosition = _chartView.TooltipPosition;
@@ -435,34 +435,54 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
             .ToArray();
 
         Sections = _chartView.Sections?.Where(x => x.IsVisible).ToArray() ?? Array.Empty<Section<TDrawingContext>>();
+        VisualElements = _chartView.VisualElements?.ToArray() ?? Array.Empty<ChartElement<TDrawingContext>>();
 
         #endregion
 
         SeriesContext = new SeriesContext<TDrawingContext>(Series);
+        var isNewTheme = LiveCharts.DefaultSettings.CurrentThemeId != ThemeId;
 
         // restart axes bounds and meta data
         foreach (var axis in XAxes)
         {
-            axis.IsNotifyingChanges = false;
+            var ce = (ChartElement<TDrawingContext>)axis;
+            ce._isInternalSet = true;
             axis.Initialize(AxisOrientation.X);
-            theme.ResolveAxisDefaults((IPlane<TDrawingContext>)axis, forceApply);
-            axis.IsNotifyingChanges = true;
+            if (!ce._isThemeSet || isNewTheme)
+            {
+                theme.ApplyStyleToAxis((IPlane<TDrawingContext>)axis);
+                ce._isThemeSet = true;
+            }
+            ce._isInternalSet = false;
+            if (axis.CrosshairPaint is not null) _crosshair.Add(axis);
         }
         foreach (var axis in YAxes)
         {
-            axis.IsNotifyingChanges = false;
+            var ce = (ChartElement<TDrawingContext>)axis;
+            ce._isInternalSet = true;
             axis.Initialize(AxisOrientation.Y);
-            theme.ResolveAxisDefaults((IPlane<TDrawingContext>)axis, forceApply);
-            axis.IsNotifyingChanges = true;
+            if (!ce._isThemeSet || isNewTheme)
+            {
+                theme.ApplyStyleToAxis((IPlane<TDrawingContext>)axis);
+                ce._isThemeSet = true;
+            }
+            ce._isInternalSet = false;
+            if (axis.CrosshairPaint is not null) _crosshair.Add(axis);
         }
 
         // get seriesBounds
         SetDrawMargin(ControlSize, new Margin());
         foreach (var series in Series)
         {
-            series.IsNotifyingChanges = false;
             if (series.SeriesId == -1) series.SeriesId = _nextSeries++;
-            theme.ResolveSeriesDefaults(theme.CurrentColors, series, forceApply);
+
+            var ce = (ChartElement<TDrawingContext>)series;
+            ce._isInternalSet = true;
+            if (!ce._isThemeSet || isNewTheme)
+            {
+                theme.ApplyStyleToSeries(series);
+                ce._isThemeSet = true;
+            }
 
             var xAxis = XAxes[series.ScalesXAt];
             var yAxis = YAxes[series.ScalesYAt];
@@ -475,7 +495,7 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
             xAxis.VisibleDataBounds.AppendValue(seriesBounds.VisibleSecondaryBounds);
             yAxis.VisibleDataBounds.AppendValue(seriesBounds.VisiblePrimaryBounds);
 
-            series.IsNotifyingChanges = true;
+            ce._isInternalSet = false;
         }
 
         #region empty bounds
@@ -484,10 +504,12 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
 
         foreach (var axis in XAxes)
         {
-            axis.IsNotifyingChanges = false;
+            var ce = (ChartElement<TDrawingContext>)axis;
+            ce._isInternalSet = true;
+
             if (!axis.DataBounds.IsEmpty)
             {
-                axis.IsNotifyingChanges = true;
+                ce._isInternalSet = false;
                 continue;
             }
 
@@ -500,15 +522,16 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
             axis.VisibleDataBounds.AppendValue(min);
 
             if (axis.DataBounds.MinDelta < max) axis.DataBounds.MinDelta = max;
-
-            axis.IsNotifyingChanges = true;
+            ce._isInternalSet = false;
         }
         foreach (var axis in YAxes)
         {
-            axis.IsNotifyingChanges = false;
+            var ce = (ChartElement<TDrawingContext>)axis;
+            ce._isInternalSet = true;
+
             if (!axis.DataBounds.IsEmpty)
             {
-                axis.IsNotifyingChanges = true;
+                ce._isInternalSet = false;
                 continue;
             }
 
@@ -521,25 +544,26 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
             axis.VisibleDataBounds.AppendValue(min);
 
             if (axis.DataBounds.MinDelta < max) axis.DataBounds.MinDelta = max;
-
-            axis.IsNotifyingChanges = true;
+            ce._isInternalSet = false;
         }
 
         #endregion
 
-        if (Legend is not null && (SeriesMiniatureChanged(Series, LegendPosition) || (_requiresLegendMeasureAlways && SizeChanged())))
-        {
-            Legend.Draw(this);
-            Update();
-            PreviousLegendPosition = LegendPosition;
-            PreviousSeries = Series;
-            preserveFirstDraw = IsFirstDraw;
-        }
+        InitializeVisualsCollector();
+
+        var seriesInLegend = Series.Where(x => x.IsVisibleAtLegend).ToArray();
+        DrawLegend(seriesInLegend);
 
         // calculate draw margin
-
+        var title = View.Title;
         var m = new Margin();
         float ts = 0f, bs = 0f, ls = 0f, rs = 0f;
+        if (title is not null)
+        {
+            var titleSize = title.Measure(this, null, null);
+            m.Top = titleSize.Height;
+            ts = titleSize.Height;
+        }
         SetDrawMargin(ControlSize, m);
 
         foreach (var axis in XAxes)
@@ -548,7 +572,7 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
 
             if (axis.DataBounds.Max == axis.DataBounds.Min)
             {
-                var c = axis.DataBounds.Min * 0.3;
+                var c = axis.UnitWidth * 0.5;
                 axis.DataBounds.Min = axis.DataBounds.Min - c;
                 axis.DataBounds.Max = axis.DataBounds.Max + c;
                 axis.VisibleDataBounds.Min = axis.VisibleDataBounds.Min - c;
@@ -558,33 +582,71 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
             var drawablePlane = (IPlane<TDrawingContext>)axis;
             var ns = drawablePlane.GetNameLabelSize(this);
             var s = drawablePlane.GetPossibleSize(this);
+            axis.Size = s;
+
             if (axis.Position == AxisPosition.Start)
             {
-                // X Bottom
-                axis.NameDesiredSize = new LvcRectangle(
-                    new LvcPoint(0, ControlSize.Height - bs - ns.Height), new LvcSize(ControlSize.Width, ns.Height));
-                axis.LabelsDesiredSize = new LvcRectangle(
-                    new LvcPoint(0, axis.NameDesiredSize.Y - s.Height), new LvcSize(ControlSize.Width, s.Height));
+                if (axis.InLineNamePlacement)
+                {
+                    var h = s.Height > ns.Height ? s.Height : ns.Height;
 
-                axis.Yo = m.Bottom + s.Height * 0.5f + ns.Height;
-                bs += s.Height + ns.Height;
-                m.Bottom = bs;
-                if (s.Width * 0.5f > m.Left) m.Left = s.Width * 0.5f;
-                if (s.Width * 0.5f > m.Right) m.Right = s.Width * 0.5f;
+                    // X Bottom
+                    axis.NameDesiredSize = new LvcRectangle(
+                        new LvcPoint(0, ControlSize.Height - h), new LvcSize(ns.Width, h));
+                    axis.LabelsDesiredSize = new LvcRectangle(
+                        new LvcPoint(0, axis.NameDesiredSize.Y - h), new LvcSize(ControlSize.Width, s.Height));
+
+                    axis.Yo = m.Bottom + h * 0.5f;
+                    bs = h;
+                    m.Bottom = bs;
+                    m.Left = ns.Width;
+                }
+                else
+                {
+                    // X Bottom
+                    axis.NameDesiredSize = new LvcRectangle(
+                        new LvcPoint(0, ControlSize.Height - bs - ns.Height), new LvcSize(ControlSize.Width, ns.Height));
+                    axis.LabelsDesiredSize = new LvcRectangle(
+                        new LvcPoint(0, axis.NameDesiredSize.Y - s.Height), new LvcSize(ControlSize.Width, s.Height));
+
+                    axis.Yo = m.Bottom + s.Height * 0.5f + ns.Height;
+                    bs += s.Height + ns.Height;
+                    m.Bottom = bs;
+                    if (s.Width * 0.5f > m.Left) m.Left = s.Width * 0.5f;
+                    if (s.Width * 0.5f > m.Right) m.Right = s.Width * 0.5f;
+                }
             }
             else
             {
-                // X Top
-                axis.NameDesiredSize = new LvcRectangle(
-                   new LvcPoint(0, ts), new LvcSize(ControlSize.Width, ns.Height));
-                axis.LabelsDesiredSize = new LvcRectangle(
-                    new LvcPoint(0, ts + ns.Height), new LvcSize(ControlSize.Width, s.Height));
+                if (axis.InLineNamePlacement)
+                {
+                    var h = s.Height > ns.Height ? s.Height : ns.Height;
 
-                axis.Yo = ts + s.Height * 0.5f + ns.Height;
-                ts += s.Height + ns.Height;
-                m.Top = ts;
-                if (ls + s.Width * 0.5f > m.Left) m.Left = ls + s.Width * 0.5f;
-                if (rs + s.Width * 0.5f > m.Right) m.Right = rs + s.Width * 0.5f;
+                    // X Bottom
+                    axis.NameDesiredSize = new LvcRectangle(
+                        new LvcPoint(0, 0), new LvcSize(ns.Width, h));
+                    axis.LabelsDesiredSize = new LvcRectangle(
+                        new LvcPoint(0, axis.NameDesiredSize.Y - h), new LvcSize(ControlSize.Width, s.Height));
+
+                    axis.Yo = m.Top + h * 0.5f;
+                    ts = h;
+                    m.Top = ts;
+                    m.Left = ns.Width;
+                }
+                else
+                {
+                    // X Top
+                    axis.NameDesiredSize = new LvcRectangle(
+                       new LvcPoint(0, ts), new LvcSize(ControlSize.Width, ns.Height));
+                    axis.LabelsDesiredSize = new LvcRectangle(
+                        new LvcPoint(0, ts + ns.Height), new LvcSize(ControlSize.Width, s.Height));
+
+                    axis.Yo = ts + s.Height * 0.5f + ns.Height;
+                    ts += s.Height + ns.Height;
+                    m.Top = ts;
+                    if (ls + s.Width * 0.5f > m.Left) m.Left = ls + s.Width * 0.5f;
+                    if (rs + s.Width * 0.5f > m.Right) m.Right = rs + s.Width * 0.5f;
+                }
             }
         }
         foreach (var axis in YAxes)
@@ -593,7 +655,7 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
 
             if (axis.DataBounds.Max == axis.DataBounds.Min)
             {
-                var c = axis.DataBounds.Min * 0.3;
+                var c = axis.UnitWidth * 0.5;
                 axis.DataBounds.Min = axis.DataBounds.Min - c;
                 axis.DataBounds.Max = axis.DataBounds.Max + c;
                 axis.VisibleDataBounds.Min = axis.VisibleDataBounds.Min - c;
@@ -603,33 +665,70 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
             var drawablePlane = (IPlane<TDrawingContext>)axis;
             var ns = drawablePlane.GetNameLabelSize(this);
             var s = drawablePlane.GetPossibleSize(this);
+            axis.Size = s;
             var w = s.Width;
 
             if (axis.Position == AxisPosition.Start)
             {
-                // Y Left
-                axis.NameDesiredSize = new LvcRectangle(new LvcPoint(ls, 0), new LvcSize(ns.Width, ControlSize.Height));
-                axis.LabelsDesiredSize = new LvcRectangle(new LvcPoint(ls + ns.Width, 0), new LvcSize(s.Width, ControlSize.Height));
+                if (axis.InLineNamePlacement)
+                {
+                    if (w < ns.Width) w = ns.Width;
 
-                axis.Xo = ls + w * 0.5f + ns.Width;
-                ls += w + ns.Width;
-                m.Left = ls;
-                if (s.Height * 0.5f > m.Top) { m.Top = s.Height * 0.5f; }
-                if (s.Height * 0.5f > m.Bottom) { m.Bottom = s.Height * 0.5f; }
+                    // Y Left
+                    axis.NameDesiredSize = new LvcRectangle(new LvcPoint(ls, 0), new LvcSize(ns.Width, ns.Height));
+                    axis.LabelsDesiredSize = new LvcRectangle(new LvcPoint(ls, 0), new LvcSize(s.Width, ControlSize.Height));
+
+                    axis.Xo = ls + w * 0.5f;
+                    ls += w;
+                    m.Top = ns.Height;
+                    m.Left = ls;
+                }
+                else
+                {
+                    // Y Left
+                    axis.NameDesiredSize = new LvcRectangle(
+                        new LvcPoint(ls, 0), new LvcSize(ns.Width, ControlSize.Height));
+                    axis.LabelsDesiredSize = new LvcRectangle(
+                        new LvcPoint(ls + ns.Width, 0), new LvcSize(s.Width, ControlSize.Height));
+
+                    axis.Xo = ls + w * 0.5f + ns.Width;
+                    ls += w + ns.Width;
+                    m.Left = ls;
+                    if (s.Height * 0.5f > m.Top) { m.Top = s.Height * 0.5f; }
+                    if (s.Height * 0.5f > m.Bottom) { m.Bottom = s.Height * 0.5f; }
+                }
             }
             else
             {
-                // Y Right
-                axis.NameDesiredSize = new LvcRectangle(
-                    new LvcPoint(ControlSize.Width - rs - ns.Width, 0), new LvcSize(ns.Width, ControlSize.Height));
-                axis.LabelsDesiredSize = new LvcRectangle(
-                    new LvcPoint(axis.NameDesiredSize.X - s.Width, 0), new LvcSize(s.Width, ControlSize.Height));
+                if (axis.InLineNamePlacement)
+                {
+                    if (w < ns.Width) w = ns.Width;
 
-                axis.Xo = rs + w * 0.5f + ns.Width;
-                rs += w + ns.Width;
-                m.Right = rs;
-                if (ts + s.Height * 0.5f > m.Top) m.Top = ts + s.Height * 0.5f;
-                if (bs + s.Height * 0.5f > m.Bottom) m.Bottom = bs + s.Height * 0.5f;
+                    // Y Left
+                    axis.NameDesiredSize = new LvcRectangle(
+                        new LvcPoint(ControlSize.Width - rs - ns.Width, 0), new LvcSize(ns.Width, ns.Height));
+                    axis.LabelsDesiredSize = new LvcRectangle(
+                        new LvcPoint(axis.NameDesiredSize.X - s.Width, 0), new LvcSize(s.Width, ControlSize.Height));
+
+                    axis.Xo = rs + w * 0.5f;
+                    rs += w;
+                    m.Top = ns.Height;
+                    m.Right = rs;
+                }
+                else
+                {
+                    // Y Right
+                    axis.NameDesiredSize = new LvcRectangle(
+                        new LvcPoint(ControlSize.Width - rs - ns.Width, 0), new LvcSize(ns.Width, ControlSize.Height));
+                    axis.LabelsDesiredSize = new LvcRectangle(
+                        new LvcPoint(axis.NameDesiredSize.X - s.Width, 0), new LvcSize(s.Width, ControlSize.Height));
+
+                    axis.Xo = rs + w * 0.5f + ns.Width;
+                    rs += w + ns.Width;
+                    m.Right = rs;
+                    if (ts + s.Height * 0.5f > m.Top) m.Top = ts + s.Height * 0.5f;
+                    if (bs + s.Height * 0.5f > m.Bottom) m.Bottom = bs + s.Height * 0.5f;
+                }
             }
         }
 
@@ -649,8 +748,16 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
 
         UpdateBounds();
 
+        if (title is not null)
+        {
+            var titleSize = title.Measure(this, null, null);
+            title.AlignToTopLeftCorner();
+            title.X = ControlSize.Width * 0.5f - titleSize.Width * 0.5f;
+            title.Y = 0;
+            AddVisual(title);
+        }
+
         var totalAxes = XAxes.Concat(YAxes).ToArray();
-        var toDeleteAxes = new HashSet<IPlane<TDrawingContext>>(_everMeasuredAxes);
 
         foreach (var axis in totalAxes)
         {
@@ -668,10 +775,11 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
                 // correction by geometry size
                 var p = Math.Abs(s.ToChartValues(axis.DataBounds.RequestedGeometrySize) - s.ToChartValues(0));
                 if (axis.DataBounds.PaddingMin > p) p = axis.DataBounds.PaddingMin;
-                axis.IsNotifyingChanges = false;
+                var ce = (ChartElement<TDrawingContext>)axis;
+                ce._isInternalSet = true;
                 axis.DataBounds.Min = axis.DataBounds.Min - p;
                 axis.VisibleDataBounds.Min = axis.VisibleDataBounds.Min - p;
-                axis.IsNotifyingChanges = true;
+                ce._isInternalSet = false;
             }
 
             // apply padding
@@ -681,76 +789,44 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
                 // correction by geometry size
                 var p = Math.Abs(s.ToChartValues(axis.DataBounds.RequestedGeometrySize) - s.ToChartValues(0));
                 if (axis.DataBounds.PaddingMax > p) p = axis.DataBounds.PaddingMax;
-                axis.IsNotifyingChanges = false;
+                var ce = (ChartElement<TDrawingContext>)axis;
+                ce._isInternalSet = true;
                 axis.DataBounds.Max = axis.DataBounds.Max + p;
                 axis.VisibleDataBounds.Max = axis.VisibleDataBounds.Max + p;
-                axis.IsNotifyingChanges = true;
+                ce._isInternalSet = false;
             }
 
-            var drawablePlane = (IPlane<TDrawingContext>)axis;
-            _ = _everMeasuredAxes.Add(drawablePlane);
-            if (drawablePlane.IsVisible)
-            {
-                drawablePlane.Measure(this);
-                _ = toDeleteAxes.Remove(drawablePlane);
-            }
-
-            drawablePlane.RemoveOldPaints(View);
+            if (axis.IsVisible) AddVisual((ChartElement<TDrawingContext>)axis);
+            ((ChartElement<TDrawingContext>)axis).RemoveOldPaints(View); // <- this is probably obsolete.
+            // the probable issue is the "IsVisible" property
         }
-
-        var toDeleteSections = new HashSet<Section<TDrawingContext>>(_everMeasuredSections);
-        foreach (var section in Sections)
-        {
-            section.Measure(this);
-            section.RemoveOldPaints(View);
-            _ = _everMeasuredSections.Add(section);
-            _ = toDeleteSections.Remove(section);
-        }
-
-        var toDeleteSeries = new HashSet<ISeries>(_everMeasuredSeries);
-        foreach (var series in Series)
-        {
-            series.Measure(this);
-            series.RemoveOldPaints(View);
-            _ = _everMeasuredSeries.Add(series);
-            _ = toDeleteSeries.Remove(series);
-        }
+        foreach (var section in Sections) AddVisual(section);
+        foreach (var visual in VisualElements) AddVisual(visual);
+        foreach (var series in Series) AddVisual((ChartElement<TDrawingContext>)series);
 
         if (_previousDrawMarginFrame is not null && _chartView.DrawMarginFrame != _previousDrawMarginFrame)
         {
+            // probably obsolete?
+            // this should be handled by the RegisterAndInvalidateVisual() method.
             _previousDrawMarginFrame.RemoveFromUI(this);
             _previousDrawMarginFrame = null;
         }
         if (_chartView.DrawMarginFrame is not null)
         {
-            _chartView.DrawMarginFrame.Measure(this);
-            _chartView.DrawMarginFrame.RemoveOldPaints(View);
+            AddVisual(_chartView.DrawMarginFrame);
             _previousDrawMarginFrame = _chartView.DrawMarginFrame;
         }
 
-        foreach (var series in toDeleteSeries)
-        {
-            series.SoftDeleteOrDispose(View);
-            _ = _everMeasuredSeries.Remove(series);
-        }
-        foreach (var axis in toDeleteAxes)
-        {
-            axis.RemoveFromUI(this);
-            _ = _everMeasuredAxes.Remove(axis);
-        }
-        foreach (var section in toDeleteSections)
-        {
-            section.RemoveFromUI(this);
-            _ = _everMeasuredSections.Remove(section);
-        }
+        CollectVisuals();
 
         foreach (var axis in totalAxes)
         {
             if (!axis.IsVisible) continue;
 
-            axis.IsNotifyingChanges = false;
+            var ce = (ChartElement<TDrawingContext>)axis;
+            ce._isInternalSet = true;
             axis.ActualBounds.HasPreviousState = true;
-            axis.IsNotifyingChanges = true;
+            ce._isInternalSet = false;
         }
 
         ActualBounds.HasPreviousState = true;
@@ -759,8 +835,8 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
         InvokeOnUpdateStarted();
 
         IsFirstDraw = false;
-        ThemeId = LiveCharts.CurrentSettings.ThemeId;
-        PreviousSeries = Series;
+        ThemeId = LiveCharts.DefaultSettings.CurrentThemeId;
+        PreviousSeriesAtLegend = Series.Where(x => x.IsVisibleAtLegend).ToList();
         PreviousLegendPosition = LegendPosition;
 
         Canvas.Invalidate();
@@ -770,16 +846,199 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
     public override void Unload()
     {
         base.Unload();
-
-        foreach (var item in _everMeasuredAxes) item.RemoveFromUI(this);
-        _everMeasuredAxes.Clear();
-        foreach (var item in _everMeasuredSections) item.RemoveFromUI(this);
-        _everMeasuredSections.Clear();
-        foreach (var item in _everMeasuredSeries) ((ChartElement<TDrawingContext>)item).RemoveFromUI(this);
-        _everMeasuredSeries.Clear();
-
-        Canvas.Dispose();
-
+        _crosshair = new();
         IsFirstDraw = true;
+    }
+
+    private LvcPoint? _sectionZoomingStart = null;
+
+    internal override void InvokePointerDown(LvcPoint point, bool isSecondaryAction)
+    {
+        if (isSecondaryAction && _zoomMode != ZoomAndPanMode.None)
+        {
+            _sectionZoomingStart = point;
+
+            var x = point.X;
+            var y = point.Y;
+
+            if (x < DrawMarginLocation.X || x > DrawMarginLocation.X + DrawMarginSize.Width ||
+                y < DrawMarginLocation.Y || y > DrawMarginLocation.Y + DrawMarginSize.Height)
+            {
+                _sectionZoomingStart = null;
+                return;
+            }
+
+            _zoomingSection.X = x;
+            _zoomingSection.Y = y;
+
+            var xMode = (_zoomMode & ZoomAndPanMode.X) == ZoomAndPanMode.X;
+            var yMode = (_zoomMode & ZoomAndPanMode.Y) == ZoomAndPanMode.Y;
+
+            if (!xMode)
+            {
+                _zoomingSection.X = DrawMarginLocation.X;
+                _zoomingSection.Width = DrawMarginSize.Width;
+            }
+
+            if (!yMode)
+            {
+                _zoomingSection.Y = DrawMarginLocation.Y;
+                _zoomingSection.Height = DrawMarginSize.Height;
+            }
+
+            return;
+        }
+        base.InvokePointerDown(point, isSecondaryAction);
+    }
+
+    internal override void InvokePointerMove(LvcPoint point)
+    {
+        foreach (var axis in _crosshair)
+        {
+            axis.InvalidateCrosshair(this, point);
+        }
+
+        if (_sectionZoomingStart is not null)
+        {
+            var xMode = (_zoomMode & ZoomAndPanMode.X) == ZoomAndPanMode.X;
+            var yMode = (_zoomMode & ZoomAndPanMode.Y) == ZoomAndPanMode.Y;
+
+            var x = point.X;
+            var y = point.Y;
+
+            if (x < DrawMarginLocation.X) x = DrawMarginLocation.X;
+            if (x > DrawMarginLocation.X + DrawMarginSize.Width) x = DrawMarginLocation.X + DrawMarginSize.Width;
+            if (y < DrawMarginLocation.Y) y = DrawMarginLocation.Y;
+            if (y > DrawMarginLocation.Y + DrawMarginSize.Height) y = DrawMarginLocation.Y + DrawMarginSize.Height;
+
+            if (xMode) _zoomingSection.Width = x - _sectionZoomingStart.Value.X;
+            if (yMode) _zoomingSection.Height = y - _sectionZoomingStart.Value.Y;
+
+            Canvas.Invalidate();
+            return;
+        }
+
+        base.InvokePointerMove(point);
+    }
+
+    internal override void InvokePointerUp(LvcPoint point, bool isSecondaryAction)
+    {
+        if (_sectionZoomingStart is not null)
+        {
+            var xy = Math.Sqrt(Math.Pow(point.X - _sectionZoomingStart.Value.X, 2) + Math.Pow(point.Y - _sectionZoomingStart.Value.Y, 2));
+            if (xy < 15)
+            {
+                _zoomingSection.X = -1;
+                _zoomingSection.Y = -1;
+                _zoomingSection.Width = 0;
+                _zoomingSection.Height = 0;
+                Update();
+                _sectionZoomingStart = null;
+                return;
+            }
+
+            if ((_zoomMode & ZoomAndPanMode.X) == ZoomAndPanMode.X)
+            {
+                for (var i = 0; i < XAxes.Length; i++)
+                {
+                    var x = XAxes[i];
+
+                    var xi = ScaleUIPoint(_sectionZoomingStart.Value, i, 0)[0];
+                    var xj = ScaleUIPoint(point, i, 0)[0];
+
+                    double xMax, xMin;
+
+                    if (xi > xj)
+                    {
+                        xMax = xi;
+                        xMin = xj;
+                    }
+                    else
+                    {
+                        xMax = xj;
+                        xMin = xi;
+                    }
+
+                    if (xMax > (x.MaxLimit ?? double.MaxValue)) xMax = x.MaxLimit ?? double.MaxValue;
+                    if (xMin < (x.MinLimit ?? double.MinValue)) xMin = x.MinLimit ?? double.MinValue;
+
+                    var min = x.MinZoomDelta ?? x.DataBounds.MinDelta * 3;
+
+                    if (xMax - xMin > min)
+                    {
+                        x.MinLimit = xMin;
+                        x.MaxLimit = xMax;
+                    }
+                    else
+                    {
+                        if (x.MaxLimit is not null && x.MinLimit is not null)
+                        {
+                            var d = xMax - xMin;
+                            var ad = x.MaxLimit - x.MinLimit;
+                            var c = (ad - d) * 0.5;
+
+                            x.MinLimit = xMin - c;
+                            x.MaxLimit = xMax + c;
+                        }
+                    }
+                }
+            }
+
+            if ((_zoomMode & ZoomAndPanMode.Y) == ZoomAndPanMode.Y)
+            {
+                for (var i = 0; i < YAxes.Length; i++)
+                {
+                    var y = YAxes[i];
+
+                    var yi = ScaleUIPoint(_sectionZoomingStart.Value, 0, i)[1];
+                    var yj = ScaleUIPoint(point, 0, i)[1];
+
+                    double yMax, yMin;
+
+                    if (yi > yj)
+                    {
+                        yMax = yi;
+                        yMin = yj;
+                    }
+                    else
+                    {
+                        yMax = yj;
+                        yMin = yi;
+                    }
+
+                    if (yMax > (y.MaxLimit ?? double.MaxValue)) yMax = y.MaxLimit ?? double.MaxValue;
+                    if (yMin < (y.MinLimit ?? double.MinValue)) yMin = y.MinLimit ?? double.MinValue;
+
+                    var min = y.MinZoomDelta ?? y.DataBounds.MinDelta * 3;
+
+                    if (yMax - yMin > min)
+                    {
+                        y.MinLimit = yMin;
+                        y.MaxLimit = yMax;
+                    }
+                    else
+                    {
+                        if (y.MaxLimit is not null && y.MinLimit is not null)
+                        {
+                            var d = yMax - yMin;
+                            var ad = y.MaxLimit - y.MinLimit;
+                            var c = (ad - d) * 0.5;
+
+                            y.MinLimit = yMin - c;
+                            y.MaxLimit = yMax + c;
+                        }
+                    }
+                }
+            }
+
+            _zoomingSection.X = -1;
+            _zoomingSection.Y = -1;
+            _zoomingSection.Width = 0;
+            _zoomingSection.Height = 0;
+            _sectionZoomingStart = null;
+            return;
+        }
+
+        base.InvokePointerUp(point, isSecondaryAction);
     }
 }

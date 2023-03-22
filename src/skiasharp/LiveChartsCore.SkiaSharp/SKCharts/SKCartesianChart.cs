@@ -22,14 +22,15 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
+using System.Linq;
 using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel;
 using LiveChartsCore.Kernel.Events;
 using LiveChartsCore.Kernel.Sketches;
 using LiveChartsCore.Measure;
-using LiveChartsCore.Motion;
 using LiveChartsCore.SkiaSharpView.Drawing;
+using LiveChartsCore.SkiaSharpView.Drawing.Geometries;
+using LiveChartsCore.VisualElements;
 using SkiaSharp;
 
 namespace LiveChartsCore.SkiaSharpView.SKCharts;
@@ -37,7 +38,7 @@ namespace LiveChartsCore.SkiaSharpView.SKCharts;
 /// <summary>
 /// In-memory chart that is able to generate a chart images.
 /// </summary>
-public class SKCartesianChart : ICartesianChartView<SkiaSharpDrawingContext>, ISkiaSharpChart
+public class SKCartesianChart : InMemorySkiaSharpChart, ICartesianChartView<SkiaSharpDrawingContext>
 {
     private LvcColor _backColor;
 
@@ -46,19 +47,15 @@ public class SKCartesianChart : ICartesianChartView<SkiaSharpDrawingContext>, IS
     /// </summary>
     public SKCartesianChart()
     {
-        if (!LiveCharts.IsConfigured) LiveCharts.Configure(LiveChartsSkiaSharp.DefaultPlatformBuilder);
-
-        var stylesBuilder = LiveCharts.CurrentSettings.GetTheme<SkiaSharpDrawingContext>();
-        var initializer = stylesBuilder.GetVisualsInitializer();
-        if (stylesBuilder.CurrentColors is null || stylesBuilder.CurrentColors.Length == 0)
-            throw new Exception("Default colors are not valid");
-        initializer.ApplyStyleToChart(this);
+        if (!LiveCharts.IsConfigured) LiveCharts.Configure(config => config.UseDefaults());
 
         Core = new CartesianChart<SkiaSharpDrawingContext>(
-            this, LiveChartsSkiaSharp.DefaultPlatformBuilder, CoreCanvas);
+            this, config => config.UseDefaults(), CoreCanvas, new RectangleGeometry());
         Core.Measuring += OnCoreMeasuring;
         Core.UpdateStarted += OnCoreUpdateStarted;
         Core.UpdateFinished += OnCoreUpdateFinished;
+
+        CoreChart = Core;
     }
 
     /// <summary>
@@ -72,34 +69,12 @@ public class SKCartesianChart : ICartesianChartView<SkiaSharpDrawingContext>, IS
         Series = view.Series;
         Sections = view.Sections;
         DrawMarginFrame = view.DrawMarginFrame;
+        LegendPosition = view.LegendPosition;
+        Title = view.Title;
     }
 
     /// <inheritdoc cref="IChartView.DesignerMode" />
     public bool DesignerMode => false;
-
-    /// <summary>
-    /// Gets or sets the background.
-    /// </summary>
-    /// <value>
-    /// The background.
-    /// </value>
-    public SKColor Background { get; set; } = SKColors.White;
-
-    /// <summary>
-    /// Gets or sets the height.
-    /// </summary>
-    /// <value>
-    /// The height.
-    /// </value>
-    public int Height { get; set; } = 600;
-
-    /// <summary>
-    /// Gets or sets the width.
-    /// </summary>
-    /// <value>
-    /// The width.
-    /// </value>
-    public int Width { get; set; } = 900;
 
     /// <inheritdoc cref="ICartesianChartView{TDrawingContext}.Core"/>
     public CartesianChart<SkiaSharpDrawingContext> Core { get; }
@@ -115,6 +90,9 @@ public class SKCartesianChart : ICartesianChartView<SkiaSharpDrawingContext>, IS
 
     /// <inheritdoc cref="ICartesianChartView{TDrawingContext}.Sections"/>
     public IEnumerable<Section<SkiaSharpDrawingContext>> Sections { get; set; } = Array.Empty<RectangularSection>();
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.VisualElements"/>
+    public IEnumerable<ChartElement<SkiaSharpDrawingContext>> VisualElements { get; set; } = Array.Empty<ChartElement<SkiaSharpDrawingContext>>();
 
     /// <inheritdoc cref="ICartesianChartView{TDrawingContext}.Series"/>
     public IEnumerable<ISeries> Series { get; set; } = Array.Empty<ISeries>();
@@ -134,17 +112,11 @@ public class SKCartesianChart : ICartesianChartView<SkiaSharpDrawingContext>, IS
     /// <inheritdoc cref="ICartesianChartView{TDrawingContext}.TooltipFindingStrategy"/>
     public TooltipFindingStrategy TooltipFindingStrategy { get; set; }
 
-    /// <inheritdoc cref="IChartView{TDrawingContext}.CoreCanvas"/>
-    public MotionCanvas<SkiaSharpDrawingContext> CoreCanvas { get; } = new();
-
     /// <inheritdoc cref="IChartView{TDrawingContext}.Legend"/>
-    public IChartLegend<SkiaSharpDrawingContext>? Legend => null;
+    public IChartLegend<SkiaSharpDrawingContext>? Legend { get; set; } = new SKDefaultLegend();
 
     /// <inheritdoc cref="IChartView{TDrawingContext}.Tooltip"/>
-    public IChartTooltip<SkiaSharpDrawingContext>? Tooltip => null;
-
-    /// <inheritdoc cref="IChartView.CoreChart"/>
-    public IChart CoreChart => Core;
+    public IChartTooltip<SkiaSharpDrawingContext>? Tooltip { get; set; }
 
     LvcColor IChartView.BackColor
     {
@@ -156,7 +128,7 @@ public class SKCartesianChart : ICartesianChartView<SkiaSharpDrawingContext>, IS
         }
     }
 
-    LvcSize IChartView.ControlSize => new(Width, Height);
+    LvcSize IChartView.ControlSize => GetControlSize();
 
     /// <inheritdoc cref="IChartView.DrawMargin"/>
     public Margin? DrawMargin { get; set; }
@@ -173,11 +145,29 @@ public class SKCartesianChart : ICartesianChartView<SkiaSharpDrawingContext>, IS
     /// <inheritdoc cref="IChartView.LegendPosition"/>
     public LegendPosition LegendPosition { get; set; }
 
-    /// <inheritdoc cref="IChartView.LegendOrientation"/>
-    public LegendOrientation LegendOrientation { get; set; }
-
     /// <inheritdoc cref="IChartView.TooltipPosition"/>
     public TooltipPosition TooltipPosition { get; set; }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.Title"/>
+    public VisualElement<SkiaSharpDrawingContext>? Title { get; set; }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.LegendTextPaint"/>
+    public IPaint<SkiaSharpDrawingContext>? LegendTextPaint { get; set; }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.LegendBackgroundPaint"/>
+    public IPaint<SkiaSharpDrawingContext>? LegendBackgroundPaint { get; set; }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.LegendTextSize"/>
+    public double? LegendTextSize { get; set; }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.TooltipTextPaint"/>
+    public IPaint<SkiaSharpDrawingContext>? TooltipTextPaint { get; set; }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.TooltipBackgroundPaint"/>
+    public IPaint<SkiaSharpDrawingContext>? TooltipBackgroundPaint { get; set; }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.TooltipTextSize"/>
+    public double? TooltipTextSize { get; set; }
 
     /// <inheritdoc cref="IChartView{TDrawingContext}.Measuring" />
     public event ChartEventHandler<SkiaSharpDrawingContext>? Measuring;
@@ -194,6 +184,9 @@ public class SKCartesianChart : ICartesianChartView<SkiaSharpDrawingContext>, IS
     /// <inheritdoc cref="IChartView.ChartPointPointerDown" />
     public event ChartPointHandler? ChartPointPointerDown;
 
+    /// <inheritdoc cref="IChartView{TDrawingContext}.VisualElementsPointerDown"/>
+    public event VisualElementHandler<SkiaSharpDrawingContext>? VisualElementsPointerDown;
+
     /// <inheritdoc cref="IChartView{TDrawingContext}.HideTooltip"/>
     public void HideTooltip()
     {
@@ -201,13 +194,44 @@ public class SKCartesianChart : ICartesianChartView<SkiaSharpDrawingContext>, IS
     }
 
     /// <inheritdoc cref="ICartesianChartView{TDrawingContext}.ScaleUIPoint(LvcPoint, int, int)"/>
+    [Obsolete($"Use {nameof(ScalePixelsToData)} instead.")]
     public double[] ScaleUIPoint(LvcPoint point, int xAxisIndex = 0, int yAxisIndex = 0)
     {
         throw new NotImplementedException();
     }
 
-    /// <inheritdoc cref="IChartView.SetTooltipStyle(LvcColor, LvcColor)"/>
-    public void SetTooltipStyle(LvcColor background, LvcColor textColor) { }
+    /// <inheritdoc cref="ICartesianChartView{TDrawingContext}.ScalePixelsToData(LvcPointD, int, int)"/>
+    public LvcPointD ScalePixelsToData(LvcPointD point, int xAxisIndex = 0, int yAxisIndex = 0)
+    {
+        var xScaler = new Scaler(Core.DrawMarginLocation, Core.DrawMarginSize, Core.XAxes[xAxisIndex]);
+        var yScaler = new Scaler(Core.DrawMarginLocation, Core.DrawMarginSize, Core.YAxes[yAxisIndex]);
+
+        return new LvcPointD { X = xScaler.ToChartValues(point.X), Y = yScaler.ToChartValues(point.Y) };
+    }
+
+    /// <inheritdoc cref="ICartesianChartView{TDrawingContext}.ScaleDataToPixels(LvcPointD, int, int)"/>
+    public LvcPointD ScaleDataToPixels(LvcPointD point, int xAxisIndex = 0, int yAxisIndex = 0)
+    {
+        var xScaler = new Scaler(Core.DrawMarginLocation, Core.DrawMarginSize, Core.XAxes[xAxisIndex]);
+        var yScaler = new Scaler(Core.DrawMarginLocation, Core.DrawMarginSize, Core.YAxes[yAxisIndex]);
+
+        return new LvcPointD { X = xScaler.ToPixels(point.X), Y = yScaler.ToPixels(point.Y) };
+    }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.GetPointsAt(LvcPoint, TooltipFindingStrategy)"/>
+    public IEnumerable<ChartPoint> GetPointsAt(LvcPoint point, TooltipFindingStrategy strategy = TooltipFindingStrategy.Automatic)
+    {
+        if (strategy == TooltipFindingStrategy.Automatic)
+            strategy = Core.Series.GetTooltipFindingStrategy();
+
+        return Core.Series.SelectMany(series => series.FindHitPoints(Core, point, strategy));
+    }
+
+    /// <inheritdoc cref="IChartView{TDrawingContext}.GetVisualsAt(LvcPoint)"/>
+    public IEnumerable<VisualElement<SkiaSharpDrawingContext>> GetVisualsAt(LvcPoint point)
+    {
+        return Core.VisualElements.SelectMany(visual => ((VisualElement<SkiaSharpDrawingContext>)visual).IsHitBy(Core, point));
+    }
 
     /// <inheritdoc cref="IChartView{TDrawingContext}.ShowTooltip(IEnumerable{ChartPoint})"/>
     public void ShowTooltip(IEnumerable<ChartPoint> points)
@@ -218,45 +242,6 @@ public class SKCartesianChart : ICartesianChartView<SkiaSharpDrawingContext>, IS
     void IChartView.InvokeOnUIThread(Action action)
     {
         action();
-    }
-
-    /// <inheritdoc cref="ISkiaSharpChart.GetImage"/>
-    public SKImage GetImage()
-    {
-        CoreCanvas.DisableAnimations = true;
-
-        using var surface = SKSurface.Create(new SKImageInfo(Width, Height));
-        using var canvas = surface.Canvas;
-        using var clearColor = new SKPaint { Color = Background };
-
-        canvas.DrawRect(0, 0, Width, Height, clearColor);
-
-        Core.IsLoaded = true;
-        Core.IsFirstDraw = true;
-        Core.Measure();
-
-        CoreCanvas.DrawFrame(
-            new SkiaSharpDrawingContext(
-                CoreCanvas,
-                new SKImageInfo(Height, Width),
-                surface,
-                canvas)
-            {
-                ClearColor = Background
-            });
-
-        Core.Unload();
-
-        return surface.Snapshot();
-    }
-
-    /// <inheritdoc cref="ISkiaSharpChart.SaveImage(string, SKEncodedImageFormat, int)"/>
-    public void SaveImage(string path, SKEncodedImageFormat format = SKEncodedImageFormat.Png, int quality = 80)
-    {
-        using var image = GetImage();
-        using var data = image.Encode(format, quality);
-        using var stream = File.OpenWrite(path);
-        data.SaveTo(stream);
     }
 
     private void OnCoreUpdateFinished(IChartView<SkiaSharpDrawingContext> chart)
@@ -274,10 +259,35 @@ public class SKCartesianChart : ICartesianChartView<SkiaSharpDrawingContext>, IS
         Measuring?.Invoke(this);
     }
 
+    private LvcSize GetControlSize()
+    {
+        if (LegendPosition == LegendPosition.Hidden || Legend is null) return new(Width, Height);
+
+        if (LegendPosition is LegendPosition.Left or LegendPosition.Right)
+        {
+            var imageControl = (IImageControl)Legend;
+            return new(Width - imageControl.Size.Width, Height);
+        }
+
+        if (LegendPosition is LegendPosition.Top or LegendPosition.Bottom)
+        {
+            var imageControl = (IImageControl)Legend;
+            return new(Width, Height - imageControl.Size.Height);
+        }
+
+        return new(Width, Height);
+    }
+
     void IChartView.OnDataPointerDown(IEnumerable<ChartPoint> points, LvcPoint pointer)
     {
         DataPointerDown?.Invoke(this, points);
         ChartPointPointerDown?.Invoke(this, points.FindClosestTo(pointer));
+    }
+
+    void IChartView<SkiaSharpDrawingContext>.OnVisualElementPointerDown(
+        IEnumerable<VisualElement<SkiaSharpDrawingContext>> visualElements, LvcPoint pointer)
+    {
+        VisualElementsPointerDown?.Invoke(this, new VisualElementsEventArgs<SkiaSharpDrawingContext>(visualElements, pointer));
     }
 
     void IChartView.Invalidate()

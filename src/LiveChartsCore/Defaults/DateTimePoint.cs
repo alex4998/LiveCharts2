@@ -21,15 +21,18 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using LiveChartsCore.Kernel;
+using LiveChartsCore.Kernel.Sketches;
 
 namespace LiveChartsCore.Defaults;
 
 /// <summary>
 /// Defines a date time point for the Cartesian coordinate system that implements <see cref="INotifyPropertyChanged"/>.
 /// </summary>
-public class DateTimePoint : INotifyPropertyChanged
+public class DateTimePoint : IChartEntity, INotifyPropertyChanged
 {
     private DateTime _dateTime;
     private double? _value;
@@ -47,8 +50,9 @@ public class DateTimePoint : INotifyPropertyChanged
     /// <param name="value">The value.</param>
     public DateTimePoint(DateTime dateTime, double? value)
     {
-        _dateTime = dateTime;
-        _value = value;
+        DateTime = dateTime;
+        Value = value;
+        Coordinate = value is null ? Coordinate.Empty : new(dateTime.Ticks, value.Value);
     }
 
     /// <summary>
@@ -67,6 +71,30 @@ public class DateTimePoint : INotifyPropertyChanged
     /// </value>
     public double? Value { get => _value; set { _value = value; OnPropertyChanged(); } }
 
+    /// <inheritdoc cref="IChartEntity.EntityIndex"/>
+#if NET5_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonIgnore]
+#else
+    [Newtonsoft.Json.JsonIgnore]
+#endif
+    public int EntityIndex { get; set; }
+
+    /// <inheritdoc cref="IChartEntity.ChartPoints"/>
+#if NET5_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonIgnore]
+#else
+    [Newtonsoft.Json.JsonIgnore]
+#endif
+    public Dictionary<IChartView, ChartPoint>? ChartPoints { get; set; }
+
+    /// <inheritdoc cref="IChartEntity.Coordinate"/>
+#if NET5_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonIgnore]
+#else
+    [Newtonsoft.Json.JsonIgnore]
+#endif
+    public Coordinate Coordinate { get; private set; } = Coordinate.Empty;
+
     /// <summary>
     /// Occurs when a property value changes.
     /// </summary>
@@ -79,6 +107,7 @@ public class DateTimePoint : INotifyPropertyChanged
     /// <param name="propertyName">Name of the property.</param>
     protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
-        PropertyChanged?.Invoke(propertyName, new PropertyChangedEventArgs(propertyName));
+        Coordinate = _value is null ? Coordinate.Empty : new(_dateTime.Ticks, _value.Value);
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }

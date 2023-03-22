@@ -22,6 +22,11 @@
 
 namespace LiveChartsCore.Drawing;
 
+// Note #20221909
+// ToDo:
+// IVisualChartPoint? is it necessary?
+// maybe we just need to make this an IDrawable<T>.
+
 /// <summary>
 /// Defines an object that contains a <see cref="IDrawable{TDrawingContext}"/> to highlight when the point requires so.
 /// </summary>
@@ -31,5 +36,5 @@ public interface IVisualChartPoint<TDrawingContext>
     /// <summary>
     /// Gets the drawable to style when a chart points requires to highlight it.
     /// </summary>
-    IGeometry<TDrawingContext>? HighlightableGeometry { get; }
+    IGeometry<TDrawingContext> MainGeometry { get; }
 }

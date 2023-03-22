@@ -40,7 +40,6 @@ namespace LiveChartsCore;
 public class PieChart<TDrawingContext> : Chart<TDrawingContext>
     where TDrawingContext : DrawingContext
 {
-    private readonly HashSet<ISeries> _everMeasuredSeries = new();
     private readonly IPieChartView<TDrawingContext> _chartView;
     private int _nextSeries = 0;
     private readonly bool _requiresLegendMeasureAlways = false;
@@ -122,7 +121,7 @@ public class PieChart<TDrawingContext> : Chart<TDrawingContext>
         return _chartView.Series
             .Where(series => (series is IPieSeries<TDrawingContext> pieSeries) && !pieSeries.IsFillSeries)
             .Where(series => series.IsHoverable)
-            .SelectMany(series => series.FindHoveredPoints(this, pointerPosition, TooltipFindingStrategy.CompareAll));
+            .SelectMany(series => series.FindHitPoints(this, pointerPosition, TooltipFindingStrategy.CompareAll));
     }
 
     /// <summary>
@@ -146,10 +145,10 @@ public class PieChart<TDrawingContext> : Chart<TDrawingContext>
 
         InvokeOnMeasuring();
 
-        if (preserveFirstDraw)
+        if (_preserveFirstDraw)
         {
             IsFirstDraw = true;
-            preserveFirstDraw = false;
+            _preserveFirstDraw = false;
         }
 
         MeasureWork = new object();
@@ -163,8 +162,9 @@ public class PieChart<TDrawingContext> : Chart<TDrawingContext>
             .Cast<IPieSeries<TDrawingContext>>()
             .ToArray();
 
+        VisualElements = _chartView.VisualElements?.ToArray() ?? Array.Empty<ChartElement<TDrawingContext>>();
+
         LegendPosition = _chartView.LegendPosition;
-        LegendOrientation = _chartView.LegendOrientation;
         Legend = _chartView.Legend;
 
         TooltipPosition = _chartView.TooltipPosition;
@@ -174,21 +174,25 @@ public class PieChart<TDrawingContext> : Chart<TDrawingContext>
         EasingFunction = _chartView.EasingFunction;
 
         SeriesContext = new SeriesContext<TDrawingContext>(Series);
+        var isNewTheme = LiveCharts.DefaultSettings.CurrentThemeId != ThemeId;
 
-        var theme = LiveCharts.CurrentSettings.GetTheme<TDrawingContext>();
-        if (theme.CurrentColors is null || theme.CurrentColors.Length == 0)
-            throw new Exception("Default colors are not valid");
-        var forceApply = ThemeId != LiveCharts.CurrentSettings.ThemeId && !IsFirstDraw;
+        var theme = LiveCharts.DefaultSettings.GetTheme<TDrawingContext>();
 
         ValueBounds = new Bounds();
         IndexBounds = new Bounds();
         PushoutBounds = new Bounds();
+
         foreach (var series in Series)
         {
-            series.IsNotifyingChanges = false;
-
             if (series.SeriesId == -1) series.SeriesId = _nextSeries++;
-            theme.ResolveSeriesDefaults(theme.CurrentColors, series, forceApply);
+
+            var ce = (ChartElement<TDrawingContext>)series;
+            ce._isInternalSet = true;
+            if (!ce._isThemeSet || isNewTheme)
+            {
+                theme.ApplyStyleToSeries(series);
+                ce._isThemeSet = true;
+            }
 
             var seriesBounds = series.GetBounds(this);
 
@@ -199,47 +203,57 @@ public class PieChart<TDrawingContext> : Chart<TDrawingContext>
             PushoutBounds.AppendValue(seriesBounds.TertiaryBounds.Max);
             PushoutBounds.AppendValue(seriesBounds.TertiaryBounds.Min);
 
-            series.IsNotifyingChanges = true;
+            ce._isInternalSet = false;
         }
 
-        if (Legend is not null && (SeriesMiniatureChanged(Series, LegendPosition) || (_requiresLegendMeasureAlways && SizeChanged())))
+        InitializeVisualsCollector();
+
+        var seriesInLegend = Series.Where(x => x.IsVisibleAtLegend).ToArray();
+        DrawLegend(seriesInLegend);
+
+        var title = View.Title;
+        var m = new Margin();
+        var ts = 0f;
+        if (title is not null)
         {
-            Legend.Draw(this);
-            Update();
-            PreviousLegendPosition = LegendPosition;
-            PreviousSeries = Series;
-            preserveFirstDraw = IsFirstDraw;
+            var titleSize = title.Measure(this, null, null);
+            m.Top = titleSize.Height;
+            ts = titleSize.Height;
         }
 
-        if (viewDrawMargin is null)
-        {
-            var m = viewDrawMargin ?? new Margin();
-            SetDrawMargin(ControlSize, m);
-        }
+        var rm = viewDrawMargin ?? new Margin(Margin.Auto);
+        var actualMargin = new Margin(
+            Margin.IsAuto(rm.Left) ? m.Left : rm.Left,
+            Margin.IsAuto(rm.Top) ? m.Top : rm.Top,
+            Margin.IsAuto(rm.Right) ? m.Right : rm.Right,
+            Margin.IsAuto(rm.Bottom) ? m.Bottom : rm.Bottom);
+
+        SetDrawMargin(ControlSize, actualMargin);
 
         // invalid dimensions, probably the chart is too small
         // or it is initializing in the UI and has no dimensions yet
         if (DrawMarginSize.Width <= 0 || DrawMarginSize.Height <= 0) return;
 
-        var toDeleteSeries = new HashSet<ISeries>(_everMeasuredSeries);
-        foreach (var series in Series)
+        UpdateBounds();
+
+        if (title is not null)
         {
-            series.Measure(this);
-            series.RemoveOldPaints(View);
-            _ = _everMeasuredSeries.Add(series);
-            _ = toDeleteSeries.Remove(series);
+            var titleSize = title.Measure(this, null, null);
+            title.AlignToTopLeftCorner();
+            title.X = ControlSize.Width * 0.5f - titleSize.Width * 0.5f;
+            title.Y = 0;
+            AddVisual(title);
         }
 
-        foreach (var series in toDeleteSeries)
-        {
-            series.SoftDeleteOrDispose(View);
-            _ = _everMeasuredSeries.Remove(series);
-        }
+        foreach (var visual in VisualElements) AddVisual(visual);
+        foreach (var series in Series) AddVisual((ChartElement<TDrawingContext>)series);
+
+        CollectVisuals();
 
         InvokeOnUpdateStarted();
         IsFirstDraw = false;
-        ThemeId = LiveCharts.CurrentSettings.ThemeId;
-        PreviousSeries = Series;
+        ThemeId = LiveCharts.DefaultSettings.CurrentThemeId;
+        PreviousSeriesAtLegend = Series.Where(x => x.IsVisibleAtLegend).ToList();
         PreviousLegendPosition = LegendPosition;
 
         Canvas.Invalidate();
@@ -249,9 +263,6 @@ public class PieChart<TDrawingContext> : Chart<TDrawingContext>
     public override void Unload()
     {
         base.Unload();
-
-        foreach (var item in _everMeasuredSeries) ((ChartElement<TDrawingContext>)item).RemoveFromUI(this);
-        _everMeasuredSeries.Clear();
         IsFirstDraw = true;
     }
 }

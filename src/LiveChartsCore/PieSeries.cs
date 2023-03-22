@@ -37,12 +37,14 @@ namespace LiveChartsCore;
 /// <typeparam name="TModel">The type of the model.</typeparam>
 /// <typeparam name="TVisual">The type of the visual.</typeparam>
 /// <typeparam name="TLabel">The type of the label.</typeparam>
+/// <typeparam name="TMiniatureGeometry">The type of the miniature geometry, used in tool tips and legends.</typeparam>
 /// <typeparam name="TDrawingContext">The type of the drawing context.</typeparam>
-public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
+public abstract class PieSeries<TModel, TVisual, TLabel, TMiniatureGeometry, TDrawingContext>
     : ChartSeries<TModel, TVisual, TLabel, TDrawingContext>, IPieSeries<TDrawingContext>
         where TDrawingContext : DrawingContext
         where TVisual : class, IDoughnutVisualChartPoint<TDrawingContext>, new()
         where TLabel : class, ILabelGeometry<TDrawingContext>, new()
+        where TMiniatureGeometry : ISizedGeometry<TDrawingContext>, new()
 {
     private IPaint<TDrawingContext>? _stroke = null;
     private IPaint<TDrawingContext>? _fill = null;
@@ -60,7 +62,7 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
     private PolarLabelsPosition _labelsPosition = PolarLabelsPosition.Middle;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="PieSeries{TModel, TVisual, TLabel, TDrawingContext}"/> class.
+    /// Initializes a new instance of the <see cref="PieSeries{TModel, TVisual, TLabel, TMiniatureGeometry, TDrawingContext}"/> class.
     /// </summary>
     protected PieSeries(bool isGauge = false, bool isGaugeFill = false)
         : base(SeriesProperties.PieSeries | SeriesProperties.Stacked |
@@ -92,42 +94,43 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
     }
 
     /// <inheritdoc cref="IPieSeries{TDrawingContext}.Pushout"/>
-    public double Pushout { get => _pushout; set { _pushout = value; OnPropertyChanged(); } }
+    public double Pushout { get => _pushout; set => SetProperty(ref _pushout, value); }
+
     /// <inheritdoc cref="IPieSeries{TDrawingContext}.InnerRadius"/>
-    public double InnerRadius { get => _innerRadius; set { _innerRadius = value; OnPropertyChanged(); } }
+    public double InnerRadius { get => _innerRadius; set => SetProperty(ref _innerRadius, value); }
 
     /// <inheritdoc cref="IPieSeries{TDrawingContext}.MaxOuterRadius"/>
-    public double MaxOuterRadius { get => _maxOuterRadius; set { _maxOuterRadius = value; OnPropertyChanged(); } }
+    public double MaxOuterRadius { get => _maxOuterRadius; set => SetProperty(ref _maxOuterRadius, value); }
 
     /// <inheritdoc cref="IPieSeries{TDrawingContext}.HoverPushout"/>
-    public double HoverPushout { get => _hoverPushout; set { _hoverPushout = value; OnPropertyChanged(); } }
+    public double HoverPushout { get => _hoverPushout; set => SetProperty(ref _hoverPushout, value); }
 
     /// <inheritdoc cref="IPieSeries{TDrawingContext}.RelativeInnerRadius"/>
-    public double RelativeInnerRadius { get => _innerPadding; set { _innerPadding = value; OnPropertyChanged(); } }
+    public double RelativeInnerRadius { get => _innerPadding; set => SetProperty(ref _innerPadding, value); }
 
     /// <inheritdoc cref="IPieSeries{TDrawingContext}.RelativeOuterRadius"/>
-    public double RelativeOuterRadius { get => _outerPadding; set { _outerPadding = value; OnPropertyChanged(); } }
+    public double RelativeOuterRadius { get => _outerPadding; set => SetProperty(ref _outerPadding, value); }
 
     /// <inheritdoc cref="IPieSeries{TDrawingContext}.MaxRadialColumnWidth"/>
-    public double MaxRadialColumnWidth { get => _maxRadialColW; set { _maxRadialColW = value; OnPropertyChanged(); } }
+    public double MaxRadialColumnWidth { get => _maxRadialColW; set => SetProperty(ref _maxRadialColW, value); }
 
     /// <inheritdoc cref="IPieSeries{TDrawingContext}.RadialAlign"/>
-    public RadialAlignment RadialAlign { get => _radialAlign; set { _radialAlign = value; OnPropertyChanged(); } }
+    public RadialAlignment RadialAlign { get => _radialAlign; set => SetProperty(ref _radialAlign, value); }
 
     /// <inheritdoc cref="IPieSeries{TDrawingContext}.CornerRadius"/>
-    public double CornerRadius { get => _cornerRadius; set { _cornerRadius = value; OnPropertyChanged(); } }
+    public double CornerRadius { get => _cornerRadius; set => SetProperty(ref _cornerRadius, value); }
 
     /// <inheritdoc cref="IPieSeries{TDrawingContext}.InvertedCornerRadius"/>
-    public bool InvertedCornerRadius { get => _invertedCornerRadius; set { _invertedCornerRadius = value; OnPropertyChanged(); } }
+    public bool InvertedCornerRadius { get => _invertedCornerRadius; set => SetProperty(ref _invertedCornerRadius, value); }
 
     /// <inheritdoc cref="IPieSeries{TDrawingContext}.IsFillSeries"/>
-    public bool IsFillSeries { get => _isFillSeries; set { _isFillSeries = value; OnPropertyChanged(); } }
+    public bool IsFillSeries { get => _isFillSeries; set => SetProperty(ref _isFillSeries, value); }
 
     /// <inheritdoc cref="IPieSeries{TDrawingContext}.DataLabelsPosition"/>
-    public PolarLabelsPosition DataLabelsPosition { get => _labelsPosition; set { _labelsPosition = value; OnPropertyChanged(); } }
+    public PolarLabelsPosition DataLabelsPosition { get => _labelsPosition; set => SetProperty(ref _labelsPosition, value); }
 
-    /// <inheritdoc cref="ChartElement{TDrawingContext}.Measure(Chart{TDrawingContext})"/>
-    public override void Measure(Chart<TDrawingContext> chart)
+    /// <inheritdoc cref="ChartElement{TDrawingContext}.Invalidate(Chart{TDrawingContext})"/>
+    public override void Invalidate(Chart<TDrawingContext> chart)
     {
         var pieChart = (PieChart<TDrawingContext>)chart;
 
@@ -175,7 +178,7 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
         var stacker = pieChart.SeriesContext.GetStackPosition(this, GetStackGroup());
         if (stacker is null) throw new NullReferenceException("Unexpected null stacker");
 
-        var toDeletePoints = new HashSet<ChartPoint>(everFetched);
+        var pointsCleanup = ChartPointCleanupContext.For(everFetched);
 
         var fetched = Fetch(pieChart).ToArray();
 
@@ -226,13 +229,15 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
             r -= LiveCharts.CotangentAngle;
             isCotangent = true;
         }
+
         var i = 1f;
+        var isClockWise = view.IsClockwise;
 
         foreach (var point in fetched)
         {
             var visual = point.Context.Visual as TVisual;
 
-            if (point.IsNull)
+            if (point.IsEmpty)
             {
                 if (visual is not null)
                 {
@@ -262,22 +267,24 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
             var stackedValue = stack.Start;
             var total = chartTotal ?? stack.Total;
 
-            double start, end;
+            double start, sweep;
+
             if (total == 0)
             {
                 start = 0;
-                end = 0;
+                sweep = 0;
             }
             else
             {
                 start = stackedValue / total * completeAngle;
-                end = (stackedValue + point.PrimaryValue) / total * completeAngle - start;
+                sweep = (stackedValue + point.PrimaryValue) / total * completeAngle - start;
+                if (!isClockWise) start = completeAngle - start - sweep;
             }
 
             if (IsFillSeries)
             {
                 start = 0;
-                end = completeAngle - 0.1f;
+                sweep = completeAngle - 0.1f;
             }
 
             if (visual is null)
@@ -304,8 +311,8 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
                 _ = everFetched.Add(point);
             }
 
-            if (Fill is not null) Fill.AddGeometryToPaintTask(pieChart.Canvas, visual);
-            if (Stroke is not null) Stroke.AddGeometryToPaintTask(pieChart.Canvas, visual);
+            Fill?.AddGeometryToPaintTask(pieChart.Canvas, visual);
+            Stroke?.AddGeometryToPaintTask(pieChart.Canvas, visual);
 
             var dougnutGeometry = visual;
 
@@ -318,30 +325,33 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
 
             dougnutGeometry.CenterX = cx;
             dougnutGeometry.CenterY = cy;
-            dougnutGeometry.X = x;
-            dougnutGeometry.Y = (drawMarginSize.Height - w) * 0.5f;
+            dougnutGeometry.X = drawLocation.X + x;
+            dougnutGeometry.Y = drawLocation.Y + (drawMarginSize.Height - w) * 0.5f;
             dougnutGeometry.Width = w;
             dougnutGeometry.Height = w;
             dougnutGeometry.InnerRadius = stackedInnerRadius;
             dougnutGeometry.PushOut = pushout;
             dougnutGeometry.StartAngle = (float)(start + initialRotation);
-            dougnutGeometry.SweepAngle = (float)end;
+            dougnutGeometry.SweepAngle = (float)sweep;
             dougnutGeometry.CornerRadius = cornerRadius;
             dougnutGeometry.InvertedCornerRadius = InvertedCornerRadius;
             dougnutGeometry.RemoveOnCompleted = false;
-            if (start == initialRotation && end == completeAngle) dougnutGeometry.SweepAngle = completeAngle - 0.1f;
 
-            point.Context.HoverArea = new SemicircleHoverArea()
-                .SetDimensions(cx, cy, (float)(start + initialRotation), (float)(start + initialRotation + end), md * 0.5f);
+            if (start + initialRotation == initialRotation && sweep == 360)
+                dougnutGeometry.SweepAngle = 359.99f;
 
-            _ = toDeletePoints.Remove(point);
+            if (point.Context.HoverArea is not SemicircleHoverArea ha)
+                point.Context.HoverArea = ha = new SemicircleHoverArea();
+            _ = ha.SetDimensions(cx, cy, (float)(start + initialRotation), (float)(start + initialRotation + sweep), md * 0.5f);
+
+            pointsCleanup.Clean(point);
 
             if (DataLabelsPaint is not null && point.PrimaryValue >= 0)
             {
                 var label = (TLabel?)point.Context.Label;
 
                 // middleAngle = startAngle + (sweepAngle/2);
-                var middleAngle = (float)(start + initialRotation + end * 0.5);
+                var middleAngle = (float)(start + initialRotation + sweep * 0.5);
 
                 var actualRotation = r +
                         (isTangent ? middleAngle - 90 : 0) +
@@ -387,7 +397,7 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
 
                 if (DataLabelsPosition == PolarLabelsPosition.End)
                 {
-                    var a = start + initialRotation + end;
+                    var a = start + initialRotation + sweep;
                     a %= 360;
                     if (a < 0) a += 360;
                     var c = 90;
@@ -400,14 +410,14 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
 
                 if (DataLabelsPosition == PolarLabelsPosition.Outer)
                 {
-                    var a = start + initialRotation + end * 0.5;
-                    var isStart = a is < 90 or (> 270 and < 360);
+                    var a = start + initialRotation + sweep * 0.5;
+                    var isStart = a % 360 is < 90 or (> 270 and < 360);
                     label.HorizontalAlign = label.HorizontalAlign = isStart ? Align.Start : Align.End;
                 }
 
                 var labelPosition = GetLabelPolarPosition(
                     cx, cy, ((w + relativeOuterRadius * 2) * 0.5f + stackedInnerRadius) * 0.5f,
-                    (float)(start + initialRotation), (float)end,
+                    stackedInnerRadius, (float)(start + initialRotation), (float)sweep,
                     label.Measure(DataLabelsPaint), DataLabelsPosition);
 
                 label.X = labelPosition.X;
@@ -420,79 +430,30 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
             i++;
         }
 
-        var u = new Scaler();
-        foreach (var point in toDeletePoints)
-        {
-            if (point.Context.Chart != pieChart.View) continue;
-            SoftDeleteOrDisposePoint(point, u, u);
-            _ = everFetched.Remove(point);
-        }
+        var u = new Scaler(); // dummy scaler, this is not used in the SoftDeleteOrDisposePoint method.
+        pointsCleanup.CollectPoints(everFetched, pieChart.View, u, u, SoftDeleteOrDisposePoint);
     }
 
     /// <inheritdoc cref="IPieSeries{TDrawingContext}.GetBounds(PieChart{TDrawingContext})"/>
-    public DimensionalBounds GetBounds(PieChart<TDrawingContext> chart)
+    public virtual DimensionalBounds GetBounds(PieChart<TDrawingContext> chart)
     {
-        return DataFactory is null
-            ? throw new Exception("Data provider not found")
-            : DataFactory.GetPieBounds(chart, this).Bounds;
+        return DataFactory.GetPieBounds(chart, this).Bounds;
     }
 
-    /// <summary>
-    /// Called when the paint context changed.
-    /// </summary>
-    protected override void OnSeriesMiniatureChanged()
+    /// <inheritdoc cref="Series{TModel, TVisual, TLabel, TDrawingContext}.GetMiniatresSketch"/>
+    public override Sketch<TDrawingContext> GetMiniatresSketch()
     {
-        var context = new CanvasSchedule<TDrawingContext>();
-        var w = LegendShapeSize;
-        var sh = 0f;
+        var schedules = new List<PaintSchedule<TDrawingContext>>();
 
-        if (Stroke is not null)
+        if (Fill is not null) schedules.Add(BuildMiniatureSchedule(Fill, new TMiniatureGeometry()));
+        if (Stroke is not null) schedules.Add(BuildMiniatureSchedule(Stroke, new TMiniatureGeometry()));
+
+        return new Sketch<TDrawingContext>()
         {
-            var strokeClone = Stroke.CloneTask();
-            var st = Stroke.StrokeThickness;
-            if (st > MaxSeriesStroke)
-            {
-                st = MaxSeriesStroke;
-                strokeClone.StrokeThickness = MaxSeriesStroke;
-            }
-
-            var visual = new TVisual
-            {
-                X = st + MaxSeriesStroke - st,
-                Y = st + MaxSeriesStroke - st,
-                Height = (float)LegendShapeSize,
-                Width = (float)LegendShapeSize,
-                CenterX = (float)LegendShapeSize * 0.5f,
-                CenterY = (float)LegendShapeSize * 0.5f,
-                StartAngle = 0,
-                SweepAngle = 359.9999f
-            };
-            sh = st;
-            strokeClone.ZIndex = 1;
-            context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(strokeClone, visual));
-        }
-
-        if (Fill is not null)
-        {
-            var fillClone = Fill.CloneTask();
-            var visual = new TVisual
-            {
-                X = sh + MaxSeriesStroke - sh,
-                Y = sh + MaxSeriesStroke - sh,
-                Height = (float)LegendShapeSize,
-                Width = (float)LegendShapeSize,
-                CenterX = (float)LegendShapeSize * 0.5f,
-                CenterY = (float)LegendShapeSize * 0.5f,
-                StartAngle = 0,
-                SweepAngle = 359.9999f
-            };
-            context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(fillClone, visual));
-        }
-
-        context.Width = w + MaxSeriesStroke * 2;
-        context.Height = w + MaxSeriesStroke * 2;
-
-        CanvasSchedule = context;
+            Height = MiniatureShapeSize,
+            Width = MiniatureShapeSize,
+            PaintSchedules = schedules
+        };
     }
 
     /// <summary>
@@ -506,7 +467,7 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
     }
 
     /// <inheritdoc cref="ChartElement{TDrawingContext}.GetPaintTasks"/>
-    protected override IPaint<TDrawingContext>?[] GetPaintTasks()
+    internal override IPaint<TDrawingContext>?[] GetPaintTasks()
     {
         return new[] { _fill, _stroke, DataLabelsPaint, hoverPaint };
     }
@@ -517,7 +478,7 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
         base.WhenPointerEnters(point);
 
         var visual = (TVisual?)point.Context.Visual;
-        if (visual is null || visual.HighlightableGeometry is null) return;
+        if (visual is null || visual.MainGeometry is null) return;
         visual.PushOut = (float)HoverPushout;
     }
 
@@ -527,25 +488,14 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
         base.WhenPointerLeaves(point);
 
         var visual = (TVisual?)point.Context.Visual;
-        if (visual is null || visual.HighlightableGeometry is null) return;
+        if (visual is null || visual.MainGeometry is null) return;
         visual.PushOut = (float)Pushout;
-    }
-
-    /// <summary>
-    /// Called when [paint changed].
-    /// </summary>
-    /// <param name="propertyName">Name of the property.</param>
-    /// <returns></returns>
-    protected override void OnPaintChanged(string? propertyName)
-    {
-        OnSeriesMiniatureChanged();
-        OnPropertyChanged(propertyName);
     }
 
     /// <inheritdoc cref="IChartSeries{TDrawingContext}.MiniatureEquals(IChartSeries{TDrawingContext})"/>
     public override bool MiniatureEquals(IChartSeries<TDrawingContext> instance)
     {
-        return instance is PieSeries<TModel, TVisual, TLabel, TDrawingContext> pieSeries &&
+        return instance is PieSeries<TModel, TVisual, TLabel, TMiniatureGeometry, TDrawingContext> pieSeries &&
            Name == pieSeries.Name && Fill == pieSeries.Fill && Stroke == pieSeries.Stroke;
     }
 
@@ -624,6 +574,7 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
     /// <param name="centerX">The center x.</param>
     /// <param name="centerY">The center y.</param>
     /// <param name="radius">The radius.</param>
+    /// <param name="innerRadius">The iner radius.</param>
     /// <param name="startAngle">The start angle.</param>
     /// <param name="sweepAngle">The sweep angle.</param>
     /// <param name="labelSize">Size of the label.</param>
@@ -633,6 +584,7 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
         float centerX,
         float centerY,
         float radius,
+        float innerRadius,
         float startAngle,
         float sweepAngle,
         LvcSize labelSize,
@@ -651,7 +603,7 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
                 break;
             case PolarLabelsPosition.Outer:
                 angle = startAngle + sweepAngle * 0.5f;
-                radius *= 2;
+                radius += radius - innerRadius;
                 break;
             case PolarLabelsPosition.Middle:
                 angle = startAngle + sweepAngle * 0.5f;
@@ -662,8 +614,8 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
                 break;
         }
 
-        angle %= 360;
-        if (angle < 0) angle += 360;
+        //angle %= 360;
+        //if (angle < 0) angle += 360;
         angle *= toRadians;
 
         return new LvcPoint(

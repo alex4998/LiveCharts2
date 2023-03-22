@@ -20,34 +20,37 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using LiveChartsCore.Kernel;
+using LiveChartsCore.Kernel.Sketches;
 
 namespace LiveChartsCore.Defaults;
 
 /// <summary>
 /// Defines a point for the polar coordinate system that implements <see cref="INotifyPropertyChanged"/>.
 /// </summary>
-public class ObservablePolarPoint : INotifyPropertyChanged
+public class ObservablePolarPoint : IChartEntity, INotifyPropertyChanged
 {
     private double? _angle;
     private double? _radius;
 
     /// <summary>
-    /// Inializes a new instance of the <see cref="ObservablePoint"/> class.
+    /// Initializes a new instance of the <see cref="ObservablePoint"/> class.
     /// </summary>
     public ObservablePolarPoint()
     { }
 
     /// <summary>
-    /// Inializes a new instance of the <see cref="ObservablePoint"/> class.
+    /// Initializes a new instance of the <see cref="ObservablePoint"/> class.
     /// </summary>
     /// <param name="angle">The angle.</param>
     /// <param name="radius">The radius.</param>
     public ObservablePolarPoint(double? angle, double? radius)
     {
-        _angle = angle;
-        _radius = radius;
+        Angle = angle;
+        Radius = radius;
     }
 
     /// <summary>
@@ -60,6 +63,30 @@ public class ObservablePolarPoint : INotifyPropertyChanged
     /// </summary>
     public double? Radius { get => _radius; set { _radius = value; OnPropertyChanged(); } }
 
+    /// <inheritdoc cref="IChartEntity.EntityIndex"/>
+#if NET5_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonIgnore]
+#else
+    [Newtonsoft.Json.JsonIgnore]
+#endif
+    public int EntityIndex { get; set; }
+
+    /// <inheritdoc cref="IChartEntity.ChartPoints"/>
+#if NET5_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonIgnore]
+#else
+    [Newtonsoft.Json.JsonIgnore]
+#endif
+    public Dictionary<IChartView, ChartPoint>? ChartPoints { get; set; }
+
+    /// <inheritdoc cref="IChartEntity.Coordinate"/>
+#if NET5_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonIgnore]
+#else
+    [Newtonsoft.Json.JsonIgnore]
+#endif
+    public Coordinate Coordinate { get; private set; } = Coordinate.Empty;
+
     /// <summary>
     /// Called when a property changes.
     /// </summary>
@@ -70,6 +97,9 @@ public class ObservablePolarPoint : INotifyPropertyChanged
     /// </summary>
     protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
+        Coordinate = _radius is null || _angle is null
+            ? Coordinate.Empty
+            : new(_angle.Value, _radius.Value);
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }

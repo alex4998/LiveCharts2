@@ -76,22 +76,11 @@ public abstract class StrokeAndFillCartesianSeries<TModel, TVisual, TLabel, TDra
     }
 
     /// <summary>
-    /// Called when [paint changed].
-    /// </summary>
-    /// <param name="propertyName">Name of the property.</param>
-    /// <returns></returns>
-    protected override void OnPaintChanged(string? propertyName)
-    {
-        OnSeriesMiniatureChanged();
-        OnPropertyChanged();
-    }
-
-    /// <summary>
     /// Gets the paint tasks.
     /// </summary>
     /// <returns></returns>
     /// <exception cref="NotImplementedException"></exception>
-    protected override IPaint<TDrawingContext>?[] GetPaintTasks()
+    internal override IPaint<TDrawingContext>?[] GetPaintTasks()
     {
         return new[] { _stroke, _fill, hoverPaint, DataLabelsPaint };
     }
@@ -100,6 +89,6 @@ public abstract class StrokeAndFillCartesianSeries<TModel, TVisual, TLabel, TDra
     public override bool MiniatureEquals(IChartSeries<TDrawingContext> series)
     {
         return series is StrokeAndFillCartesianSeries<TModel, TVisual, TLabel, TDrawingContext> sfSeries &&
-            Name == series.Name && Fill == sfSeries.Fill && Stroke == sfSeries.Stroke;
+            Name == series.Name && !((ISeries)this).PaintsChanged && Fill == sfSeries.Fill && Stroke == sfSeries.Stroke;
     }
 }

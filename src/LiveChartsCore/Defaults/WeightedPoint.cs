@@ -20,8 +20,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using LiveChartsCore.Kernel;
+using LiveChartsCore.Kernel.Sketches;
 
 namespace LiveChartsCore.Defaults;
 
@@ -29,7 +32,7 @@ namespace LiveChartsCore.Defaults;
 /// Defines a point with a weighted coordinate.
 /// </summary>
 /// <seealso cref="INotifyPropertyChanged" />
-public class WeightedPoint : INotifyPropertyChanged
+public class WeightedPoint : IChartEntity, INotifyPropertyChanged
 {
     private double? _x;
     private double? _y;
@@ -49,9 +52,9 @@ public class WeightedPoint : INotifyPropertyChanged
     /// <param name="weight">The weight.</param>
     public WeightedPoint(double? x, double? y, double? weight)
     {
-        _x = x;
-        _y = y;
-        _weight = weight;
+        X = x;
+        Y = y;
+        Weight = weight;
     }
 
     /// <summary>
@@ -84,12 +87,39 @@ public class WeightedPoint : INotifyPropertyChanged
     /// <returns></returns>
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    /// <inheritdoc cref="IChartEntity.EntityIndex"/>
+#if NET5_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonIgnore]
+#else
+    [Newtonsoft.Json.JsonIgnore]
+#endif
+    public int EntityIndex { get; set; }
+
+    /// <inheritdoc cref="IChartEntity.ChartPoints"/>
+#if NET5_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonIgnore]
+#else
+    [Newtonsoft.Json.JsonIgnore]
+#endif
+    public Dictionary<IChartView, ChartPoint>? ChartPoints { get; set; }
+
+    /// <inheritdoc cref="IChartEntity.Coordinate"/>
+#if NET5_0_OR_GREATER
+    [System.Text.Json.Serialization.JsonIgnore]
+#else
+    [Newtonsoft.Json.JsonIgnore]
+#endif
+    public Coordinate Coordinate { get; private set; } = Coordinate.Empty;
+
     /// <summary>
     /// Called when a property changed.
     /// </summary>
     /// <param name="propertyName">Name of the property.</param>
     protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
-        PropertyChanged?.Invoke(propertyName, new PropertyChangedEventArgs(propertyName));
+        Coordinate = _x is null || _y is null
+            ? Coordinate.Empty
+            : new(_x ?? 0, _y ?? 0, _weight ?? 0);
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }

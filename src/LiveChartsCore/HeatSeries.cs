@@ -47,10 +47,11 @@ public abstract class HeatSeries<TModel, TVisual, TLabel, TDrawingContext>
     private Bounds _weightBounds = new();
     private int _heatKnownLength = 0;
     private List<Tuple<double, LvcColor>> _heatStops = new();
-    private LvcColor[] _heatMap = {
-            LvcColor.FromArgb(255, 87, 103, 222), // cold (min value)
-            LvcColor.FromArgb(255, 95, 207, 249) // hot (max value)
-        };
+    private LvcColor[] _heatMap =
+    {
+        LvcColor.FromArgb(255, 87, 103, 222), // cold (min value)
+        LvcColor.FromArgb(255, 95, 207, 249) // hot (max value)
+    };
     private double[]? _colorStops;
     private Padding _pointPadding = new(4);
 
@@ -67,18 +68,26 @@ public abstract class HeatSeries<TModel, TVisual, TLabel, TDrawingContext>
     }
 
     /// <inheritdoc cref="IHeatSeries{TDrawingContext}.HeatMap"/>
-    public LvcColor[] HeatMap { get => _heatMap; set { _heatMap = value; OnPropertyChanged(); OnSeriesMiniatureChanged(); } }
+    public LvcColor[] HeatMap
+    {
+        get => _heatMap;
+        set
+        {
+            OnMiniatureChanged();
+            SetProperty(ref _heatMap, value);
+        }
+    }
 
     /// <inheritdoc cref="IHeatSeries{TDrawingContext}.ColorStops"/>
-    public double[]? ColorStops { get => _colorStops; set { _colorStops = value; OnPropertyChanged(); } }
+    public double[]? ColorStops { get => _colorStops; set => SetProperty(ref _colorStops, value); }
 
     /// <inheritdoc cref="IHeatSeries{TDrawingContext}.PointPadding"/>
-    public Padding PointPadding { get => _pointPadding; set { _pointPadding = value; OnPropertyChanged(); } }
+    public Padding PointPadding { get => _pointPadding; set => SetProperty(ref _pointPadding, value); }
 
-    /// <inheritdoc cref="ChartElement{TDrawingContext}.Measure(Chart{TDrawingContext})"/>
-    public override void Measure(Chart<TDrawingContext> chart)
+    /// <inheritdoc cref="ChartElement{TDrawingContext}.Invalidate(Chart{TDrawingContext})"/>
+    public override void Invalidate(Chart<TDrawingContext> chart)
     {
-        _paintTaks ??= LiveCharts.CurrentSettings.GetProvider<TDrawingContext>().GetSolidColorPaint();
+        _paintTaks ??= LiveCharts.DefaultSettings.GetProvider<TDrawingContext>().GetSolidColorPaint();
 
         var cartesianChart = (CartesianChart<TDrawingContext>)chart;
         var primaryAxis = cartesianChart.YAxes[ScalesYAt];
@@ -88,8 +97,8 @@ public abstract class HeatSeries<TModel, TVisual, TLabel, TDrawingContext>
         var drawMarginSize = cartesianChart.DrawMarginSize;
         var secondaryScale = secondaryAxis.GetNextScaler(cartesianChart);
         var primaryScale = primaryAxis.GetNextScaler(cartesianChart);
-        var previousPrimaryScale = primaryAxis.GetActualScalerScaler(cartesianChart);
-        var previousSecondaryScale = secondaryAxis.GetActualScalerScaler(cartesianChart);
+        var previousPrimaryScale = primaryAxis.GetActualScaler(cartesianChart);
+        var previousSecondaryScale = secondaryAxis.GetActualScaler(cartesianChart);
 
         var uws = secondaryScale.MeasureInPixels(secondaryAxis.UnitWidth);
         var uwp = primaryScale.MeasureInPixels(primaryAxis.UnitWidth);
@@ -109,7 +118,7 @@ public abstract class HeatSeries<TModel, TVisual, TLabel, TDrawingContext>
         }
 
         var dls = (float)DataLabelsSize;
-        var toDeletePoints = new HashSet<ChartPoint>(everFetched);
+        var pointsCleanup = ChartPointCleanupContext.For(everFetched);
 
         var p = PointPadding;
 
@@ -128,7 +137,7 @@ public abstract class HeatSeries<TModel, TVisual, TLabel, TDrawingContext>
 
             var baseColor = HeatFunctions.InterpolateColor(tertiary, _weightBounds, HeatMap, _heatStops);
 
-            if (point.IsNull)
+            if (point.IsEmpty)
             {
                 if (visual is not null)
                 {
@@ -175,7 +184,7 @@ public abstract class HeatSeries<TModel, TVisual, TLabel, TDrawingContext>
                 _ = everFetched.Add(point);
             }
 
-            if (_paintTaks is not null) _paintTaks.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
+            _paintTaks?.AddGeometryToPaintTask(cartesianChart.Canvas, visual);
 
             visual.X = secondary - uws * 0.5f + p.Left;
             visual.Y = primary - uwp * 0.5f + p.Top;
@@ -184,10 +193,11 @@ public abstract class HeatSeries<TModel, TVisual, TLabel, TDrawingContext>
             visual.Color = LvcColor.FromArgb(baseColor.A, baseColor.R, baseColor.G, baseColor.B);
             visual.RemoveOnCompleted = false;
 
-            var ha = new RectangleHoverArea().SetDimensions(secondary - uws * 0.5f, primary - uwp * 0.5f, uws, uwp);
-            point.Context.HoverArea = ha;
+            if (point.Context.HoverArea is not RectangleHoverArea ha)
+                point.Context.HoverArea = ha = new RectangleHoverArea();
+            _ = ha.SetDimensions(secondary - uws * 0.5f, primary - uwp * 0.5f, uws, uwp);
 
-            _ = toDeletePoints.Remove(point);
+            pointsCleanup.Clean(point);
 
             if (DataLabelsPaint is not null)
             {
@@ -223,74 +233,28 @@ public abstract class HeatSeries<TModel, TVisual, TLabel, TDrawingContext>
             OnPointMeasured(point);
         }
 
-        foreach (var point in toDeletePoints)
-        {
-            if (point.Context.Chart != cartesianChart.View) continue;
-            SoftDeleteOrDisposePoint(point, primaryScale, secondaryScale);
-            _ = everFetched.Remove(point);
-        }
+        pointsCleanup.CollectPoints(
+            everFetched, cartesianChart.View, primaryScale, secondaryScale, SoftDeleteOrDisposePoint);
     }
 
-    /// <inheritdoc cref="ICartesianSeries{TDrawingContext}.GetBounds(CartesianChart{TDrawingContext}, ICartesianAxis, ICartesianAxis)"/>
-    public override SeriesBounds GetBounds(
-        CartesianChart<TDrawingContext> chart, ICartesianAxis secondaryAxis, ICartesianAxis primaryAxis)
+    /// <inheritdoc cref="ChartElement{TDrawingContext}.Invalidate(Chart{TDrawingContext})"/>
+    public override SeriesBounds GetBounds(CartesianChart<TDrawingContext> chart, ICartesianAxis secondaryAxis, ICartesianAxis primaryAxis)
     {
-        var baseSeriesBounds = base.GetBounds(chart, secondaryAxis, primaryAxis);
-        if (baseSeriesBounds.HasData) return baseSeriesBounds;
-        var baseBounds = baseSeriesBounds.Bounds;
+        var seriesBounds = base.GetBounds(chart, secondaryAxis, primaryAxis);
+        _weightBounds = seriesBounds.Bounds.TertiaryBounds;
+        return seriesBounds;
+    }
 
-        _weightBounds = baseBounds.TertiaryBounds;
+    /// <inheritdoc cref="CartesianSeries{TModel, TVisual, TLabel, TDrawingContext}.GetRequestedSecondaryOffset"/>
+    protected override double GetRequestedSecondaryOffset()
+    {
+        return 0.5f;
+    }
 
-        var tickPrimary = primaryAxis.GetTick(chart.ControlSize, baseBounds.VisiblePrimaryBounds);
-        var tickSecondary = secondaryAxis.GetTick(chart.ControlSize, baseBounds.VisibleSecondaryBounds);
-
-        var ts = tickSecondary.Value * DataPadding.X;
-        var tp = tickPrimary.Value * DataPadding.Y;
-
-        if (baseBounds.VisibleSecondaryBounds.Delta == 0)
-        {
-            var ms = baseBounds.VisibleSecondaryBounds.Min == 0 ? 1 : baseBounds.VisibleSecondaryBounds.Min;
-            ts = 0.1 * ms * DataPadding.X;
-        }
-
-        if (baseBounds.VisiblePrimaryBounds.Delta == 0)
-        {
-            var mp = baseBounds.VisiblePrimaryBounds.Min == 0 ? 1 : baseBounds.VisiblePrimaryBounds.Min;
-            tp = 0.1 * mp * DataPadding.Y;
-        }
-
-        return
-            new SeriesBounds(
-                new DimensionalBounds
-                {
-                    SecondaryBounds = new Bounds
-                    {
-                        Max = baseBounds.SecondaryBounds.Max + 0.5 * secondaryAxis.UnitWidth,
-                        Min = baseBounds.SecondaryBounds.Min - 0.5 * secondaryAxis.UnitWidth,
-                        MinDelta = baseBounds.SecondaryBounds.MinDelta,
-                        PaddingMax = ts,
-                        PaddingMin = ts
-                    },
-                    PrimaryBounds = new Bounds
-                    {
-                        Max = baseBounds.PrimaryBounds.Max + 0.5 * primaryAxis.UnitWidth,
-                        Min = baseBounds.PrimaryBounds.Min - 0.5 * primaryAxis.UnitWidth,
-                        MinDelta = baseBounds.PrimaryBounds.MinDelta,
-                        PaddingMax = tp,
-                        PaddingMin = tp
-                    },
-                    VisibleSecondaryBounds = new Bounds
-                    {
-                        Max = baseBounds.VisibleSecondaryBounds.Max + 0.5 * secondaryAxis.UnitWidth,
-                        Min = baseBounds.VisibleSecondaryBounds.Min - 0.5 * secondaryAxis.UnitWidth
-                    },
-                    VisiblePrimaryBounds = new Bounds
-                    {
-                        Max = baseBounds.VisiblePrimaryBounds.Max + 0.5 * primaryAxis.UnitWidth,
-                        Min = baseBounds.VisiblePrimaryBounds.Min - 0.5 * primaryAxis.UnitWidth
-                    }
-                },
-                false);
+    /// <inheritdoc cref="CartesianSeries{TModel, TVisual, TLabel, TDrawingContext}.GetRequestedPrimaryOffset"/>
+    protected override double GetRequestedPrimaryOffset()
+    {
+        return 0.5f;
     }
 
     /// <inheritdoc cref="Series{TModel, TVisual, TLabel, TDrawingContext}.SetDefaultPointTransitions(ChartPoint)"/>
@@ -340,37 +304,37 @@ public abstract class HeatSeries<TModel, TVisual, TLabel, TDrawingContext>
         label.RemoveOnCompleted = true;
     }
 
-    /// <summary>
-    /// Called when the paint context changes.
-    /// </summary>
-    protected override void OnSeriesMiniatureChanged()
+    /// <inheritdoc cref="Series{TModel, TVisual, TLabel, TDrawingContext}.GetMiniatresSketch"/>
+    public override Sketch<TDrawingContext> GetMiniatresSketch()
     {
-        var context = new CanvasSchedule<TDrawingContext>();
-        var w = LegendShapeSize;
+        var schedules = new List<PaintSchedule<TDrawingContext>>();
 
-        var strokeClone = LiveCharts.CurrentSettings.GetProvider<TDrawingContext>().GetSolidColorPaint();
+        var strokeClone = LiveCharts.DefaultSettings.GetProvider<TDrawingContext>().GetSolidColorPaint();
         var st = strokeClone.StrokeThickness;
-        if (st > MaxSeriesStroke)
+
+        if (st > MAX_MINIATURE_STROKE_WIDTH)
         {
-            st = MaxSeriesStroke;
-            strokeClone.StrokeThickness = MaxSeriesStroke;
+            st = MAX_MINIATURE_STROKE_WIDTH;
+            strokeClone.StrokeThickness = MAX_MINIATURE_STROKE_WIDTH;
         }
 
         var visual = new TVisual
         {
-            X = st + MaxSeriesStroke - st,
-            Y = st + MaxSeriesStroke - st,
-            Height = (float)LegendShapeSize,
-            Width = (float)LegendShapeSize,
+            X = st * 0.5f,
+            Y = st * 0.5f,
+            Height = (float)MiniatureShapeSize,
+            Width = (float)MiniatureShapeSize,
             Color = HeatMap[0] // ToDo <- draw the gradient?
         };
         strokeClone.ZIndex = 1;
-        context.PaintSchedules.Add(new PaintSchedule<TDrawingContext>(strokeClone, visual));
+        schedules.Add(new PaintSchedule<TDrawingContext>(strokeClone, visual));
 
-        context.Width = w + MaxSeriesStroke * 2;
-        context.Height = w + MaxSeriesStroke * 2;
-
-        CanvasSchedule = context;
+        return new Sketch<TDrawingContext>()
+        {
+            Height = MiniatureShapeSize,
+            Width = MiniatureShapeSize,
+            PaintSchedules = schedules
+        };
     }
 
     /// <inheritdoc cref="ChartSeries{TModel, TVisual, TLabel, TDrawingContext}.MiniatureEquals(IChartSeries{TDrawingContext})"/>
@@ -381,7 +345,7 @@ public abstract class HeatSeries<TModel, TVisual, TLabel, TDrawingContext>
     }
 
     /// <inheritdoc cref="ChartElement{TDrawingContext}.GetPaintTasks"/>
-    protected override IPaint<TDrawingContext>?[] GetPaintTasks()
+    internal override IPaint<TDrawingContext>?[] GetPaintTasks()
     {
         return new[] { _paintTaks, hoverPaint };
     }
