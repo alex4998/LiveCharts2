@@ -225,10 +225,10 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
         {
             _ = _animatableBounds
                 .TransitionateProperties(null)
-                .WithAnimation(animation =>
-                         animation
-                             .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
-                             .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction))
+                //.WithAnimation(animation =>
+                //         animation
+                //             .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+                //             .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction))
                 .CompleteCurrentTransitions();
 
             _ = cartesianChart.Canvas.Trackers.Add(_animatableBounds);
@@ -315,13 +315,14 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
                 };
 
                 _ = _nameGeometry
-                     .TransitionateProperties(
-                             nameof(_nameGeometry.X),
-                             nameof(_nameGeometry.Y))
-                     .WithAnimation(animation =>
-                         animation
-                             .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
-                             .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
+                    .TransitionateProperties(
+                        nameof(_nameGeometry.X),
+                        nameof(_nameGeometry.Y)
+                    );
+                     //.WithAnimation(animation =>
+                     //    animation
+                     //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+                     //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
 
                 isNew = true;
             }
@@ -384,11 +385,12 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
                         .TransitionateProperties(
                             nameof(textGeometry.X),
                             nameof(textGeometry.Y),
-                            nameof(textGeometry.Opacity))
-                        .WithAnimation(animation =>
-                            animation
-                                .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
-                                .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
+                            nameof(textGeometry.Opacity)
+                        );
+                        //.WithAnimation(animation =>
+                        //    animation
+                        //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+                        //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
 
                     textGeometry.Opacity = 0;
 
@@ -423,11 +425,12 @@ public abstract class Axis<TDrawingContext, TTextGeometry, TLineGeometry>
                         .TransitionateProperties(
                             nameof(lineGeometry.X), nameof(lineGeometry.X1),
                             nameof(lineGeometry.Y), nameof(lineGeometry.Y1),
-                            nameof(lineGeometry.Opacity))
-                        .WithAnimation(animation =>
-                            animation
-                                .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
-                                .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
+                            nameof(lineGeometry.Opacity)
+                        );
+                        //.WithAnimation(animation =>
+                        //    animation
+                        //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+                        //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
 
                     lineGeometry.Opacity = 0;
 

@@ -188,11 +188,11 @@ public class ScatterSeries<TModel, TVisual, TLabel, TDrawingContext>
                 {
                     var l = new TLabel { X = x - hgs, Y = y - hgs, RotateTransform = (float)DataLabelsRotation };
 
-                    _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y))
-                        .WithAnimation(animation =>
-                            animation
-                                .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
-                                .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
+                    _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y));
+                        //.WithAnimation(animation =>
+                        //    animation
+                        //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+                        //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
 
                     l.CompleteTransition(null);
                     label = l;
@@ -350,10 +350,10 @@ public class ScatterSeries<TModel, TVisual, TLabel, TDrawingContext>
                nameof(visual.Y),
                nameof(visual.Width),
                nameof(visual.Height))
-           .WithAnimation(animation =>
-               animation
-                   .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
-                   .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
+           //.WithAnimation(animation =>
+           //    animation
+           //        .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
+           //        .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
            .CompleteCurrentTransitions();
     }
 

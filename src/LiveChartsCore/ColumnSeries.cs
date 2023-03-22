@@ -221,11 +221,11 @@ public abstract class ColumnSeries<TModel, TVisual, TLabel, TDrawingContext> : B
                 {
                     var l = new TLabel { X = secondary - helper.uwm + helper.cp, Y = helper.p, RotateTransform = (float)DataLabelsRotation };
 
-                    _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y))
-                        .WithAnimation(animation =>
-                            animation
-                                .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
-                                .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
+                    _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y));
+                        //.WithAnimation(animation =>
+                        //    animation
+                        //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+                        //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
 
                     l.CompleteTransition(null);
                     label = l;
@@ -333,10 +333,10 @@ public abstract class ColumnSeries<TModel, TVisual, TLabel, TDrawingContext> : B
                 nameof(visual.Width),
                 nameof(visual.Y),
                 nameof(visual.Height))
-            .WithAnimation(animation =>
-                animation
-                    .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
-                    .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
+            //.WithAnimation(animation =>
+            //    animation
+            //        .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
+            //        .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
             .CompleteCurrentTransitions();
     }
 

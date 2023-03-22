@@ -222,11 +222,11 @@ public class RowSeries<TModel, TVisual, TLabel, TDrawingContext> : BarSeries<TMo
                 {
                     var l = new TLabel { X = helper.p, Y = secondary - helper.uwm + helper.cp, RotateTransform = (float)DataLabelsRotation };
 
-                    _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y))
-                        .WithAnimation(animation =>
-                            animation
-                                .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
-                                .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
+                    _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y));
+                        //.WithAnimation(animation =>
+                        //    animation
+                        //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+                        //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
 
                     l.CompleteTransition(null);
                     label = l;
@@ -333,10 +333,10 @@ public class RowSeries<TModel, TVisual, TLabel, TDrawingContext> : BarSeries<TMo
                 nameof(visual.Width),
                 nameof(visual.Y),
                 nameof(visual.Height))
-            .WithAnimation(animation =>
-                animation
-                    .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
-                    .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
+            //.WithAnimation(animation =>
+            //    animation
+            //        .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
+            //        .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
             .CompleteCurrentTransitions();
     }
 

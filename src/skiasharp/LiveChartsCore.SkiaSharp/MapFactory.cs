@@ -89,11 +89,11 @@ public class MapFactory : IMapFactory<SkiaSharpDrawingContext>
                         landData.Shape = shape = new HeatPathShape { IsClosed = true };
 
                         _ = shape
-                            .TransitionateProperties(nameof(HeatPathShape.FillColor))
-                            .WithAnimation(animation =>
-                                animation
-                                    .WithDuration(TimeSpan.FromMilliseconds(800))
-                                    .WithEasingFunction(EasingFunctions.ExponentialOut));
+                            .TransitionateProperties(nameof(HeatPathShape.FillColor));
+                        //.WithAnimation(animation =>
+                        //    animation
+                        //        .WithDuration(TimeSpan.FromMilliseconds(800))
+                        //        .WithEasingFunction(EasingFunctions.ExponentialOut));
                     }
                     else
                     {

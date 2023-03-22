@@ -354,11 +354,11 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
                 {
                     var l = new TLabel { X = cx, Y = cy, RotateTransform = actualRotation };
 
-                    _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y))
-                        .WithAnimation(animation =>
-                            animation
-                                .WithDuration(AnimationsSpeed ?? pieChart.AnimationsSpeed)
-                                .WithEasingFunction(EasingFunction ?? pieChart.EasingFunction));
+                    _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y));
+                        //.WithAnimation(animation =>
+                        //    animation
+                        //        .WithDuration(AnimationsSpeed ?? pieChart.AnimationsSpeed)
+                        //        .WithEasingFunction(EasingFunction ?? pieChart.EasingFunction));
 
                     l.CompleteTransition(null);
                     label = l;
@@ -569,10 +569,10 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
                 nameof(visual.StartAngle),
                 nameof(visual.SweepAngle),
                 nameof(visual.PushOut))
-            .WithAnimation(animation =>
-                animation
-                    .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
-                    .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
+            //.WithAnimation(animation =>
+            //    animation
+            //        .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
+            //        .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
             .CompleteCurrentTransitions();
 
         if ((SeriesProperties & SeriesProperties.Gauge) == 0)
@@ -585,10 +585,10 @@ public abstract class PieSeries<TModel, TVisual, TLabel, TDrawingContext>
                     nameof(visual.InnerRadius),
                     nameof(visual.Width),
                     nameof(visual.Height))
-                .WithAnimation(animation =>
-                    animation
-                        .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
-                        .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
+                //.WithAnimation(animation =>
+                //    animation
+                //        .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
+                //        .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
                 .CompleteCurrentTransitions();
     }
 

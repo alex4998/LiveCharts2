@@ -343,11 +343,11 @@ public class PolarLineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeom
                     {
                         var l = new TLabel { X = x - hgs, Y = scaler.CenterY - hgs, RotateTransform = (float)actualRotation };
 
-                        _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y))
-                            .WithAnimation(animation =>
-                                animation
-                                    .WithDuration(AnimationsSpeed ?? polarChart.AnimationsSpeed)
-                                    .WithEasingFunction(EasingFunction ?? polarChart.EasingFunction));
+                        _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y));
+                            //.WithAnimation(animation =>
+                            //    animation
+                            //        .WithDuration(AnimationsSpeed ?? polarChart.AnimationsSpeed)
+                            //        .WithEasingFunction(EasingFunction ?? polarChart.EasingFunction));
 
                         l.CompleteTransition(null);
                         label = l;
@@ -683,10 +683,10 @@ public class PolarLineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeom
                 nameof(visual.Geometry.Y),
                 nameof(visual.Geometry.Width),
                 nameof(visual.Geometry.Height))
-            .WithAnimation(animation =>
-                animation
-                    .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
-                    .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
+            //.WithAnimation(animation =>
+            //    animation
+            //        .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
+            //        .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
             .CompleteCurrentTransitions();
 
         _ = visual.Bezier
@@ -697,10 +697,10 @@ public class PolarLineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeom
                 nameof(visual.Bezier.Ym),
                 nameof(visual.Bezier.Xj),
                 nameof(visual.Bezier.Yj))
-            .WithAnimation(animation =>
-                animation
-                    .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
-                    .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
+            //.WithAnimation(animation =>
+            //    animation
+            //        .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
+            //        .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
             .CompleteCurrentTransitions();
     }
 

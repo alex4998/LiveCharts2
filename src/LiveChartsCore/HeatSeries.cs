@@ -197,11 +197,11 @@ public abstract class HeatSeries<TModel, TVisual, TLabel, TDrawingContext>
                 {
                     var l = new TLabel { X = secondary - uws * 0.5f, Y = primary - uws * 0.5f, RotateTransform = (float)DataLabelsRotation };
 
-                    _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y))
-                        .WithAnimation(animation =>
-                            animation
-                                .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
-                                .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
+                    _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y));
+                        //.WithAnimation(animation =>
+                        //    animation
+                        //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+                        //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
 
                     l.CompleteTransition(null);
                     label = l;
@@ -307,10 +307,10 @@ public abstract class HeatSeries<TModel, TVisual, TLabel, TDrawingContext>
                 nameof(visual.Y),
                 nameof(visual.Height),
                 nameof(visual.Color))
-            .WithAnimation(animation =>
-                animation
-                    .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
-                    .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
+            //.WithAnimation(animation =>
+            //    animation
+            //        .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
+            //        .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
             .CompleteCurrentTransitions();
     }
 

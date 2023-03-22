@@ -56,11 +56,12 @@ public partial class ViewModel
         _ = visual
             .TransitionateProperties(
                 nameof(visual.Y),
-                nameof(visual.Height))
-            .WithAnimation(animation =>
-                animation
-                    .WithDuration(delayedFunction.Speed)
-                    .WithEasingFunction(delayedFunction.Function));
+                nameof(visual.Height)
+            );
+        //.WithAnimation(animation =>
+        //    animation
+        //        .WithDuration(delayedFunction.Speed)
+        //        .WithEasingFunction(delayedFunction.Function));
     }
 
     public List<ISeries> Series { get; set; }

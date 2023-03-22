@@ -255,11 +255,11 @@ public abstract class FinancialSeries<TModel, TVisual, TLabel, TDrawingContext>
                 {
                     var l = new TLabel { X = secondary - uwm, Y = high, RotateTransform = (float)DataLabelsRotation };
 
-                    _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y))
-                        .WithAnimation(animation =>
-                            animation
-                                .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
-                                .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
+                    _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y));
+                        //.WithAnimation(animation =>
+                        //    animation
+                        //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+                        //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
 
                     l.CompleteTransition(null);
                     label = l;
@@ -370,10 +370,10 @@ public abstract class FinancialSeries<TModel, TVisual, TLabel, TDrawingContext>
                 nameof(visual.Open),
                 nameof(visual.Close),
                 nameof(visual.Low))
-            .WithAnimation(animation =>
-                animation
-                    .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
-                    .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
+            //.WithAnimation(animation =>
+            //    animation
+            //        .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
+            //        .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
             .CompleteCurrentTransitions();
     }
 

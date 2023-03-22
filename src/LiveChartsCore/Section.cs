@@ -231,15 +231,16 @@ public abstract class Section<TSizedGeometry, TDrawingContext> : Section<TDrawin
                 };
 
                 _ = _fillSizedGeometry
-                   .TransitionateProperties(
-                       nameof(_fillSizedGeometry.X),
-                       nameof(_fillSizedGeometry.Width),
-                       nameof(_fillSizedGeometry.Y),
-                       nameof(_fillSizedGeometry.Height))
-                   .WithAnimation(animation =>
-                       animation
-                           .WithDuration(chart.AnimationsSpeed)
-                           .WithEasingFunction(chart.EasingFunction));
+                    .TransitionateProperties(
+                        nameof(_fillSizedGeometry.X),
+                        nameof(_fillSizedGeometry.Width),
+                        nameof(_fillSizedGeometry.Y),
+                        nameof(_fillSizedGeometry.Height)
+                    );
+                   //.WithAnimation(animation =>
+                   //    animation
+                   //        .WithDuration(chart.AnimationsSpeed)
+                   //        .WithEasingFunction(chart.EasingFunction));
 
                 _fillSizedGeometry.CompleteTransition(null);
             }
@@ -269,15 +270,16 @@ public abstract class Section<TSizedGeometry, TDrawingContext> : Section<TDrawin
                 };
 
                 _ = _strokeSizedGeometry
-                   .TransitionateProperties(
-                       nameof(_strokeSizedGeometry.X),
-                       nameof(_strokeSizedGeometry.Width),
-                       nameof(_strokeSizedGeometry.Y),
-                       nameof(_strokeSizedGeometry.Height))
-                   .WithAnimation(animation =>
-                       animation
-                           .WithDuration(chart.AnimationsSpeed)
-                           .WithEasingFunction(chart.EasingFunction));
+                    .TransitionateProperties(
+                        nameof(_strokeSizedGeometry.X),
+                        nameof(_strokeSizedGeometry.Width),
+                        nameof(_strokeSizedGeometry.Y),
+                        nameof(_strokeSizedGeometry.Height)
+                    );
+                   //.WithAnimation(animation =>
+                   //    animation
+                   //        .WithDuration(chart.AnimationsSpeed)
+                   //        .WithEasingFunction(chart.EasingFunction));
 
                 _strokeSizedGeometry.CompleteTransition(null);
             }

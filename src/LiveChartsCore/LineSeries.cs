@@ -210,10 +210,10 @@ public class LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry,
                 if (isNew)
                 {
                     _ = fillPath.TransitionateProperties(nameof(fillPath.Pivot))
-                        .WithAnimation(animation =>
-                                    animation
-                                        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
-                                        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction))
+                        //.WithAnimation(animation =>
+                        //            animation
+                        //                .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+                        //                .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction))
                         .CompleteCurrentTransitions();
                 }
             }
@@ -227,10 +227,10 @@ public class LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry,
                 if (isNew)
                 {
                     _ = strokePath.TransitionateProperties(nameof(strokePath.Pivot))
-                        .WithAnimation(animation =>
-                                    animation
-                                        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
-                                        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction))
+                        //.WithAnimation(animation =>
+                        //            animation
+                        //                .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+                        //                .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction))
                         .CompleteCurrentTransitions();
                 }
             }
@@ -319,11 +319,11 @@ public class LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry,
                     {
                         var l = new TLabel { X = x - hgs, Y = p - hgs, RotateTransform = (float)DataLabelsRotation };
 
-                        _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y))
-                            .WithAnimation(animation =>
-                                animation
-                                    .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
-                                    .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
+                        _ = l.TransitionateProperties(nameof(l.X), nameof(l.Y));
+                            //.WithAnimation(animation =>
+                            //    animation
+                            //        .WithDuration(AnimationsSpeed ?? cartesianChart.AnimationsSpeed)
+                            //        .WithEasingFunction(EasingFunction ?? cartesianChart.EasingFunction));
 
                         l.CompleteTransition(null);
                         label = l;
@@ -651,10 +651,10 @@ public class LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry,
                 nameof(visual.Geometry.Width),
                 nameof(visual.Geometry.Height),
                 nameof(visual.Geometry.TranslateTransform))
-            .WithAnimation(animation =>
-                animation
-                    .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
-                    .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
+            //.WithAnimation(animation =>
+            //    animation
+            //        .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
+            //        .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
             .CompleteCurrentTransitions();
 
         _ = visual.Bezier
@@ -665,10 +665,10 @@ public class LineSeries<TModel, TVisual, TLabel, TDrawingContext, TPathGeometry,
                 nameof(visual.Bezier.Ym),
                 nameof(visual.Bezier.Xj),
                 nameof(visual.Bezier.Yj))
-            .WithAnimation(animation =>
-                animation
-                    .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
-                    .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
+            //.WithAnimation(animation =>
+            //    animation
+            //        .WithDuration(AnimationsSpeed ?? chart.AnimationsSpeed)
+            //        .WithEasingFunction(EasingFunction ?? chart.EasingFunction))
             .CompleteCurrentTransitions();
     }
 

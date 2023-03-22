@@ -502,10 +502,10 @@ public abstract class Chart<TDrawingContext> : IChart
         {
             _ = ActualBounds
                 .TransitionateProperties(null)
-                .WithAnimation(animation =>
-                         animation
-                             .WithDuration(AnimationsSpeed)
-                             .WithEasingFunction(EasingFunction))
+                //.WithAnimation(animation =>
+                //         animation
+                //             .WithDuration(AnimationsSpeed)
+                //             .WithEasingFunction(EasingFunction))
                 .CompleteCurrentTransitions();
 
             _ = Canvas.Trackers.Add(ActualBounds);

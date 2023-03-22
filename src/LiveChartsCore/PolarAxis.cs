@@ -225,11 +225,11 @@ public abstract class PolarAxis<TDrawingContext, TTextGeometry, TLineGeometry, T
         if (!_animatableBounds.HasPreviousState)
         {
             _ = _animatableBounds
-                .TransitionateProperties(nameof(_animatableBounds.MinLimit), nameof(_animatableBounds.MaxLimit))
-                .WithAnimation(animation =>
-                         animation
-                             .WithDuration(AnimationsSpeed ?? polarChart.AnimationsSpeed)
-                             .WithEasingFunction(EasingFunction ?? polarChart.EasingFunction));
+                .TransitionateProperties(nameof(_animatableBounds.MinLimit), nameof(_animatableBounds.MaxLimit));
+                //.WithAnimation(animation =>
+                //         animation
+                //             .WithDuration(AnimationsSpeed ?? polarChart.AnimationsSpeed)
+                //             .WithEasingFunction(EasingFunction ?? polarChart.EasingFunction));
 
             _ = polarChart.Canvas.Trackers.Add(_animatableBounds);
         }
@@ -336,11 +336,12 @@ public abstract class PolarAxis<TDrawingContext, TTextGeometry, TLineGeometry, T
                             nameof(textGeometry.X),
                             nameof(textGeometry.Y),
                             nameof(textGeometry.RotateTransform),
-                            nameof(textGeometry.Opacity))
-                        .WithAnimation(animation =>
-                            animation
-                                .WithDuration(AnimationsSpeed ?? polarChart.AnimationsSpeed)
-                                .WithEasingFunction(EasingFunction ?? polarChart.EasingFunction));
+                            nameof(textGeometry.Opacity)
+                        );
+                        //.WithAnimation(animation =>
+                        //    animation
+                        //        .WithDuration(AnimationsSpeed ?? polarChart.AnimationsSpeed)
+                        //        .WithEasingFunction(EasingFunction ?? polarChart.EasingFunction));
 
                     textGeometry.X = l.X;
                     textGeometry.Y = l.Y;
@@ -360,11 +361,12 @@ public abstract class PolarAxis<TDrawingContext, TTextGeometry, TLineGeometry, T
                             .TransitionateProperties(
                                 nameof(lineGeometry.X), nameof(lineGeometry.X1),
                                 nameof(lineGeometry.Y), nameof(lineGeometry.Y1),
-                                nameof(lineGeometry.Opacity))
-                            .WithAnimation(animation =>
-                                animation
-                                    .WithDuration(AnimationsSpeed ?? polarChart.AnimationsSpeed)
-                                    .WithEasingFunction(EasingFunction ?? polarChart.EasingFunction));
+                                nameof(lineGeometry.Opacity)
+                            );
+                            //.WithAnimation(animation =>
+                            //    animation
+                            //        .WithDuration(AnimationsSpeed ?? polarChart.AnimationsSpeed)
+                            //        .WithEasingFunction(EasingFunction ?? polarChart.EasingFunction));
 
                         lineGeometry.Opacity = 0;
                         lineGeometry.CompleteTransition(null);
@@ -380,11 +382,12 @@ public abstract class PolarAxis<TDrawingContext, TTextGeometry, TLineGeometry, T
                             .TransitionateProperties(
                                 nameof(circleGeometry.X), nameof(circleGeometry.Y),
                                 nameof(circleGeometry.Width), nameof(circleGeometry.Height),
-                                nameof(circleGeometry.Opacity))
-                            .WithAnimation(animation =>
-                                animation
-                                    .WithDuration(AnimationsSpeed ?? polarChart.AnimationsSpeed)
-                                    .WithEasingFunction(EasingFunction ?? polarChart.EasingFunction));
+                                nameof(circleGeometry.Opacity)
+                            );
+                            //.WithAnimation(animation =>
+                            //    animation
+                            //        .WithDuration(AnimationsSpeed ?? polarChart.AnimationsSpeed)
+                            //        .WithEasingFunction(EasingFunction ?? polarChart.EasingFunction));
 
                         var h = Math.Sqrt(Math.Pow(l.X - scaler.CenterX, 2) + Math.Pow(l.Y - scaler.CenterY, 2));
                         var radius = (float)h;

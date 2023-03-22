@@ -27,10 +27,10 @@ public partial class ViewModel
             _ = circle
                 .TransitionateProperties(
                     nameof(circle.X), nameof(circle.Y))
-                .WithAnimation(animation =>
-                    animation
-                        .WithDuration(TimeSpan.FromSeconds(1))
-                        .WithEasingFunction(EasingFunctions.ElasticOut))
+                //.WithAnimation(animation =>
+                //    animation
+                //        .WithDuration(TimeSpan.FromSeconds(1))
+                //        .WithEasingFunction(EasingFunctions.ElasticOut))
                 .CompleteCurrentTransitions();
 
             //circle.SetPropertiesTransitions(
